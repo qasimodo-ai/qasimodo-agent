@@ -1,0 +1,98 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            executable_name: pyinstaller-test
+            artifact_name: pyinstaller-test-linux
+          - os: windows-latest
+            executable_name: pyinstaller-test.exe
+            artifact_name: pyinstaller-test-windows
+          - os: macos-latest
+            executable_name: pyinstaller-test
+            artifact_name: pyinstaller-test-macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Playwright browsers
+        run: uv run python -m playwright install chromium
+
+      - name: Install Playwright system dependencies (Linux only)
+        if: runner.os == 'Linux'
+        run: uv run python -m playwright install-deps chromium
+
+      - name: Build executable
+        run: uv run build
+
+      # Windows: Create installer with Inno Setup
+      - name: Create Windows installer
+        if: runner.os == 'Windows'
+        run: |
+          choco install innosetup -y
+          iscc installer.iss
+        shell: pwsh
+
+      # macOS: Create .app bundle
+      - name: Create macOS .app bundle
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x create_macos_app.sh
+          ./create_macos_app.sh
+
+      # Linux: Create tar.gz package
+      - name: Create Linux package
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x create_linux_package.sh
+          ./create_linux_package.sh
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/pyinstaller-test-setup.exe
+          if-no-files-found: error
+
+      - name: Upload macOS app
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/pyinstaller-test-macos.zip
+          if-no-files-found: error
+
+      - name: Upload Linux package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/pyinstaller-test-linux.tar.gz
+          if-no-files-found: error
