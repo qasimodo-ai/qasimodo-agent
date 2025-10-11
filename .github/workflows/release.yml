@@ -12,17 +12,19 @@ jobs:
   build-and-release:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             executable_name: pyinstaller-test
-            artifact_name: pyinstaller-test-linux
+            artifact_name: pyinstaller-test-linux.tar.gz
           - os: windows-latest
             executable_name: pyinstaller-test.exe
-            artifact_name: pyinstaller-test-windows.exe
-          - os: macos-latest
+            artifact_name: pyinstaller-test-setup.exe
+          - os: macos-14  # ARM64 (Apple Silicon)
             executable_name: pyinstaller-test
-            artifact_name: pyinstaller-test-macos
+            artifact_name: pyinstaller-test-macos-arm64.zip
+          - os: macos-13  # x86_64 (Intel)
+            executable_name: pyinstaller-test
+            artifact_name: pyinstaller-test-macos-x86_64.zip
 
     runs-on: ${{ matrix.os }}
 
@@ -99,11 +101,19 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload macOS app to Release
-        if: runner.os == 'macOS'
+      - name: Upload macOS ARM64 app to Release
+        if: matrix.os == 'macos-14'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/pyinstaller-test-macos.zip
+          files: dist/pyinstaller-test-macos-arm64.zip
+          draft: false
+          prerelease: false
+
+      - name: Upload macOS x86_64 app to Release
+        if: matrix.os == 'macos-13'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/pyinstaller-test-macos-x86_64.zip
           draft: false
           prerelease: false
 

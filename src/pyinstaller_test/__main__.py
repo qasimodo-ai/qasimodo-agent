@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import platform
+import subprocess
 from pathlib import Path
 
 from browser_use import Agent, Browser, ChatGoogle, ChatOpenAI
@@ -29,6 +30,44 @@ def find_bundled_chromium():
 				if chromium_executable.exists():
 					return str(chromium_executable)
 	return None
+
+def ensure_chromium_installed():
+	"""Ensure Chromium is installed on macOS (auto-install if needed)"""
+	if platform.system() != "Darwin":
+		return  # Only needed on macOS
+
+	# Check if Chromium is already installed
+	home = Path.home()
+	playwright_browsers = home / "Library" / "Caches" / "ms-playwright"
+
+	if playwright_browsers.exists():
+		chromium_dirs = list(playwright_browsers.glob("chromium-*"))
+		if chromium_dirs:
+			print(f"✓ Chromium already installed at {chromium_dirs[0]}")
+			return
+
+	# Chromium not found, install it
+	print("⚠ Chromium not found on macOS. Installing...")
+	print("This is a one-time operation and may take a few minutes.")
+
+	try:
+		result = subprocess.run(
+			[sys.executable, "-m", "playwright", "install", "chromium"],
+			check=True,
+			capture_output=True,
+			text=True
+		)
+		print("✓ Chromium installed successfully!")
+		if result.stdout:
+			print(result.stdout)
+	except subprocess.CalledProcessError as e:
+		print(f"✗ Failed to install Chromium: {e}")
+		if e.stderr:
+			print(e.stderr)
+		sys.exit(1)
+	except FileNotFoundError:
+		print("✗ Playwright not found. Please install it manually with: pip install playwright")
+		sys.exit(1)
 
 async def main(chromium_path):
 	agent = Agent(
@@ -66,7 +105,7 @@ def health_check():
 	# Check module imports
 	try:
 		import browser_use
-		print(f"✓ browser_use imported: {browser_use.__version__}")
+		print(f"✓ browser_use imported")
 	except Exception as e:
 		print(f"✗ Failed to import browser_use: {e}")
 		return False
@@ -109,6 +148,9 @@ def cli():
 	if args.health:
 		success = health_check()
 		sys.exit(0 if success else 1)
+
+	# Ensure Chromium is installed on macOS
+	ensure_chromium_installed()
 
 	# Normal execution
 	chromium_path = find_bundled_chromium() or os.environ.get("CHROMIUM_PATH")

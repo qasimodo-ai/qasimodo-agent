@@ -47,9 +47,10 @@ EOF
 # Make executable
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-# Create a zip for distribution
+# Create a zip for distribution with architecture suffix
+ARCH=$(uname -m)
 cd "${DIST_DIR}"
-zip -r "${APP_NAME}-macos.zip" "${BUNDLE_NAME}"
+zip -r "${APP_NAME}-macos-${ARCH}.zip" "${BUNDLE_NAME}"
 cd ..
 
-echo "Created ${APP_NAME}-macos.zip"
+echo "Created ${APP_NAME}-macos-${ARCH}.zip"

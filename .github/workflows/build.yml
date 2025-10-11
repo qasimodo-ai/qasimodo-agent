@@ -11,7 +11,6 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             executable_name: pyinstaller-test
@@ -19,9 +18,12 @@ jobs:
           - os: windows-latest
             executable_name: pyinstaller-test.exe
             artifact_name: pyinstaller-test-windows
-          - os: macos-latest
+          - os: macos-14  # ARM64 (Apple Silicon)
             executable_name: pyinstaller-test
-            artifact_name: pyinstaller-test-macos
+            artifact_name: pyinstaller-test-macos-arm64
+          - os: macos-13  # x86_64 (Intel)
+            executable_name: pyinstaller-test
+            artifact_name: pyinstaller-test-macos-x86_64
 
     runs-on: ${{ matrix.os }}
 
@@ -98,12 +100,20 @@ jobs:
           path: dist/pyinstaller-test-setup.exe
           if-no-files-found: error
 
-      - name: Upload macOS app
-        if: runner.os == 'macOS'
+      - name: Upload macOS ARM64 app
+        if: matrix.os == 'macos-14'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-macos.zip
+          path: dist/pyinstaller-test-macos-arm64.zip
+          if-no-files-found: error
+
+      - name: Upload macOS x86_64 app
+        if: matrix.os == 'macos-13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/pyinstaller-test-macos-x86_64.zip
           if-no-files-found: error
 
       - name: Upload Linux package
