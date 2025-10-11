@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    # Temporary: trigger on all pushes for testing
+    branches: [ master, main ]
 
 permissions:
   contents: write

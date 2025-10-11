@@ -43,11 +43,11 @@ def ensure_chromium_installed():
 	if playwright_browsers.exists():
 		chromium_dirs = list(playwright_browsers.glob("chromium-*"))
 		if chromium_dirs:
-			print(f"✓ Chromium already installed at {chromium_dirs[0]}")
+			print(f"[OK] Chromium already installed at {chromium_dirs[0]}")
 			return
 
 	# Chromium not found, install it
-	print("⚠ Chromium not found on macOS. Installing...")
+	print("[WARN] Chromium not found on macOS. Installing...")
 	print("This is a one-time operation and may take a few minutes.")
 
 	try:
@@ -57,16 +57,16 @@ def ensure_chromium_installed():
 			capture_output=True,
 			text=True
 		)
-		print("✓ Chromium installed successfully!")
+		print("[OK] Chromium installed successfully!")
 		if result.stdout:
 			print(result.stdout)
 	except subprocess.CalledProcessError as e:
-		print(f"✗ Failed to install Chromium: {e}")
+		print(f"[FAIL] Failed to install Chromium: {e}")
 		if e.stderr:
 			print(e.stderr)
 		sys.exit(1)
 	except FileNotFoundError:
-		print("✗ Playwright not found. Please install it manually with: pip install playwright")
+		print("[FAIL] Playwright not found. Please install it manually with: pip install playwright")
 		sys.exit(1)
 
 async def main(chromium_path):
@@ -92,29 +92,29 @@ def health_check():
 	print("=" * 60)
 
 	# Check Python version
-	print(f"✓ Python version: {sys.version}")
-	print(f"✓ Platform: {platform.system()} {platform.machine()}")
+	print(f"[OK] Python version: {sys.version}")
+	print(f"[OK] Platform: {platform.system()} {platform.machine()}")
 
 	# Check if frozen (bundled)
 	if getattr(sys, 'frozen', False):
-		print(f"✓ Running as PyInstaller bundle")
-		print(f"  Bundle dir: {sys._MEIPASS}")
+		print(f"[OK] Running as PyInstaller bundle")
+		print(f"     Bundle dir: {sys._MEIPASS}")
 	else:
-		print(f"✓ Running from source")
+		print(f"[OK] Running from source")
 
 	# Check module imports
 	try:
 		import browser_use
-		print(f"✓ browser_use imported")
+		print(f"[OK] browser_use imported")
 	except Exception as e:
-		print(f"✗ Failed to import browser_use: {e}")
+		print(f"[FAIL] Failed to import browser_use: {e}")
 		return False
 
 	try:
 		import playwright
-		print(f"✓ playwright imported")
+		print(f"[OK] playwright imported")
 	except Exception as e:
-		print(f"✗ Failed to import playwright: {e}")
+		print(f"[FAIL] Failed to import playwright: {e}")
 		return False
 
 	# Check Chromium
@@ -122,21 +122,21 @@ def health_check():
 	if chromium_path:
 		chromium_file = Path(chromium_path)
 		if chromium_file.exists():
-			print(f"✓ Chromium found: {chromium_path}")
-			print(f"  Size: {chromium_file.stat().st_size / (1024*1024):.1f} MB")
+			print(f"[OK] Chromium found: {chromium_path}")
+			print(f"     Size: {chromium_file.stat().st_size / (1024*1024):.1f} MB")
 		else:
-			print(f"✗ Chromium path exists but file not found: {chromium_path}")
+			print(f"[FAIL] Chromium path exists but file not found: {chromium_path}")
 			return False
 	else:
-		print(f"⚠ Chromium not bundled (checking environment)")
+		print(f"[WARN] Chromium not bundled (checking environment)")
 		env_chromium = os.environ.get("CHROMIUM_PATH")
 		if env_chromium:
-			print(f"  CHROMIUM_PATH: {env_chromium}")
+			print(f"       CHROMIUM_PATH: {env_chromium}")
 		else:
-			print(f"  No CHROMIUM_PATH set")
+			print(f"       No CHROMIUM_PATH set")
 
 	print("=" * 60)
-	print("✓ Health check passed!")
+	print("[OK] Health check passed!")
 	print("=" * 60)
 	return True
 
