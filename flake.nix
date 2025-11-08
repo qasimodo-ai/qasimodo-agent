@@ -17,7 +17,7 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             uv
-            python312
+            python313
           ];
         };
       };
