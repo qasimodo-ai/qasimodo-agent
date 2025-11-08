@@ -50,6 +50,12 @@ jobs:
         if: runner.os == 'Linux'
         run: uv run python -m playwright install-deps chromium
 
+      - name: Install Inno Setup (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          choco install innosetup -y
+        shell: pwsh
+
       - name: Build executable
         run: uv run build
 
@@ -57,7 +63,7 @@ jobs:
       - name: Test Windows executable
         if: runner.os == 'Windows'
         run: |
-          dist\pyinstaller-test\pyinstaller-test.exe --health
+          & "dist\pyinstaller-test\pyinstaller-test.exe" --health
         shell: pwsh
 
       - name: Test macOS executable
@@ -70,12 +76,12 @@ jobs:
         run: |
           dist/pyinstaller-test/pyinstaller-test --health
 
-      - name: Upload Windows package
+      - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-windows.zip
+          path: dist/pyinstaller-test-setup.exe
           if-no-files-found: error
 
       - name: Upload macOS ARM64 app

@@ -215,48 +215,64 @@ To install system-wide (optional):
 
 
 def create_windows_package():
-    """Create Windows package from PyInstaller output."""
+    """Create Windows installer using Inno Setup."""
     app_name = "pyinstaller-test"
     dist_dir = Path("dist")
-    package_dir = dist_dir / f"{app_name}-windows"
     build_dir = dist_dir / app_name
+    installer_iss = Path("installer.iss")
 
-    print("Creating Windows package...")
+    print("Creating Windows installer...")
 
-    # Rename the PyInstaller output directory
-    if package_dir.exists():
-        shutil.rmtree(package_dir)
-    build_dir.rename(package_dir)
+    if not build_dir.exists():
+        print(f"Error: {build_dir} does not exist. Run the PyInstaller build first.")
+        sys.exit(1)
 
-    # Create a README
-    readme = package_dir / "README.txt"
-    readme.write_text(
-        f"""{app_name.title()} - Windows
+    if not installer_iss.exists():
+        print(f"Error: {installer_iss} does not exist.")
+        sys.exit(1)
 
-To run:
-  {app_name}.exe
+    # Try to find iscc.exe (Inno Setup Compiler)
+    # Common locations on Windows
+    iscc_paths = [
+        Path("C:/Program Files (x86)/Inno Setup 6/iscc.exe"),
+        Path("C:/Program Files/Inno Setup 6/iscc.exe"),
+        Path("C:/Program Files (x86)/Inno Setup 5/iscc.exe"),
+        Path("C:/Program Files/Inno Setup 5/iscc.exe"),
+    ]
 
-Or from command line:
-  .\\{app_name}.exe
+    # Check if iscc is in PATH
+    iscc = shutil.which("iscc")
+    if iscc:
+        iscc_path = Path(iscc)
+    else:
+        # Try common installation paths
+        iscc_path = None
+        for path in iscc_paths:
+            if path.exists():
+                iscc_path = path
+                break
 
-To install system-wide (optional):
-  1. Copy the entire folder to C:\\Program Files\\{app_name}
-  2. Add C:\\Program Files\\{app_name} to your PATH environment variable
-  3. Or create a shortcut to {app_name}.exe in your Start Menu
-"""
+    if not iscc_path:
+        print("Error: Inno Setup Compiler (iscc.exe) not found.")
+        print("Please install Inno Setup or ensure iscc.exe is in your PATH.")
+        sys.exit(1)
+
+    print(f"Using Inno Setup Compiler: {iscc_path}")
+
+    # Run Inno Setup Compiler
+    result = subprocess.run(
+        [str(iscc_path), str(installer_iss)],
+        check=False,
     )
 
-    # Create zip
-    zip_path = dist_dir / f"{app_name}-windows.zip"
-    if zip_path.exists():
-        zip_path.unlink()
+    if result.returncode != 0:
+        print(f"Error: Inno Setup Compiler failed with exit code {result.returncode}")
+        sys.exit(result.returncode)
 
-    # Create zip for distribution
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(package_dir):
-            for file in files:
-                file_path = Path(root) / file
-                arcname = file_path.relative_to(dist_dir)
-                zipf.write(file_path, arcname)
-
-    print(f"Created {app_name}-windows.zip")
+    installer_exe = dist_dir / f"{app_name}-setup.exe"
+    if installer_exe.exists():
+        print(f"Created {installer_exe.name}")
+    else:
+        print(
+            f"Warning: Expected installer {installer_exe} not found after compilation."
+        )
