@@ -70,34 +70,12 @@ jobs:
         run: |
           dist/pyinstaller-test/pyinstaller-test --health
 
-      # Windows: Create installer with Inno Setup
-      - name: Create Windows installer
-        if: runner.os == 'Windows'
-        run: |
-          choco install innosetup -y
-          iscc installer.iss
-        shell: pwsh
-
-      # macOS: Create .app bundle
-      - name: Create macOS .app bundle
-        if: runner.os == 'macOS'
-        run: |
-          chmod +x create_macos_app.sh
-          ./create_macos_app.sh
-
-      # Linux: Create tar.gz package
-      - name: Create Linux package
-        if: runner.os == 'Linux'
-        run: |
-          chmod +x create_linux_package.sh
-          ./create_linux_package.sh
-
-      - name: Upload Windows installer
+      - name: Upload Windows package
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-setup.exe
+          path: dist/pyinstaller-test-windows.zip
           if-no-files-found: error
 
       - name: Upload macOS ARM64 app
