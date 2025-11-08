@@ -50,6 +50,12 @@ jobs:
         if: runner.os == 'Linux'
         run: uv run python -m playwright install-deps chromium
 
+      - name: Install Inno Setup (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          choco install innosetup -y
+        shell: pwsh
+
       - name: Build executable
         run: uv run build
 
@@ -57,7 +63,7 @@ jobs:
       - name: Test Windows executable
         if: runner.os == 'Windows'
         run: |
-          dist\pyinstaller-test\pyinstaller-test.exe --health
+          & "dist\pyinstaller-test\pyinstaller-test.exe" --health
         shell: pwsh
 
       - name: Test macOS executable
@@ -68,29 +74,7 @@ jobs:
       - name: Test Linux executable
         if: runner.os == 'Linux'
         run: |
-          dist/pyinstaller-test/pyinstaller-test --health
-
-      # Windows: Create installer with Inno Setup
-      - name: Create Windows installer
-        if: runner.os == 'Windows'
-        run: |
-          choco install innosetup -y
-          iscc installer.iss
-        shell: pwsh
-
-      # macOS: Create .app bundle
-      - name: Create macOS .app bundle
-        if: runner.os == 'macOS'
-        run: |
-          chmod +x create_macos_app.sh
-          ./create_macos_app.sh
-
-      # Linux: Create tar.gz package
-      - name: Create Linux package
-        if: runner.os == 'Linux'
-        run: |
-          chmod +x create_linux_package.sh
-          ./create_linux_package.sh
+          dist/pyinstaller-test-linux/pyinstaller-test --health
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
