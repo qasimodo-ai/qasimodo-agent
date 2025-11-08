@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 def get_version():
-    """Read version from VERSION.in file."""
-    version_file = Path("VERSION.in")
+    """Read version from VERSION file."""
+    version_file = Path("VERSION")
     if not version_file.exists():
         print(f"Warning: {version_file} not found, using default version 1.0.0")
         return "1.0.0"
@@ -230,7 +230,7 @@ def create_windows_package():
     app_name = "qasimodo-agent"
     dist_dir = Path("dist")
     build_dir = dist_dir / app_name
-    installer_iss = Path("installer.iss")
+    installer_iss = Path("distribution/installer.iss")
     version = get_version()
 
     print("Creating Windows installer...")
