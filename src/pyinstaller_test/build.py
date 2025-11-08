@@ -165,7 +165,7 @@ def create_linux_package():
     """Create Linux package from PyInstaller output."""
     app_name = "pyinstaller-test"
     dist_dir = Path("dist")
-    package_dir = dist_dir / app_name
+    package_dir = dist_dir / f"{app_name}-linux"
     build_dir = dist_dir / app_name
 
     print("Creating Linux package...")

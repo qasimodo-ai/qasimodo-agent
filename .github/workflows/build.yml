@@ -74,7 +74,7 @@ jobs:
       - name: Test Linux executable
         if: runner.os == 'Linux'
         run: |
-          dist/pyinstaller-test/pyinstaller-test --health
+          dist/pyinstaller-test-linux/pyinstaller-test --health
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
