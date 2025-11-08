@@ -8,6 +8,16 @@ import zipfile
 from pathlib import Path
 
 
+def get_version():
+    """Read version from VERSION.in file."""
+    version_file = Path("VERSION.in")
+    if not version_file.exists():
+        print(f"Warning: {version_file} not found, using default version 1.0.0")
+        return "1.0.0"
+    version = version_file.read_text().strip()
+    return version
+
+
 def build():
     # Find playwright chromium directory
     home = Path.home()
@@ -77,6 +87,7 @@ def create_macos_app():
     resources_app_dir = app_dir / "Contents" / "Resources" / "app"
     arch = platform.machine()
     zip_name = f"{app_name}-macos-{arch}.zip"
+    version = get_version()
 
     print("Creating macOS .app bundle...")
 
@@ -118,7 +129,7 @@ exec "${PAYLOAD_DIR}/$(basename "$0")" "$@"
     # Create Info.plist
     info_plist = app_dir / "Contents" / "Info.plist"
     info_plist.write_text(
-        """<?xml version="1.0" encoding="UTF-8"?>
+        f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -131,9 +142,9 @@ exec "${PAYLOAD_DIR}/$(basename "$0")" "$@"
     <key>CFBundleDisplayName</key>
     <string>Qasimodo Agent</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>{version}</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>{version}</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -219,6 +230,7 @@ def create_windows_package():
     dist_dir = Path("dist")
     build_dir = dist_dir / app_name
     installer_iss = Path("installer.iss")
+    version = get_version()
 
     print("Creating Windows installer...")
 
@@ -229,6 +241,20 @@ def create_windows_package():
     if not installer_iss.exists():
         print(f"Error: {installer_iss} does not exist.")
         sys.exit(1)
+
+    # Read installer.iss template and replace version
+    installer_content = installer_iss.read_text()
+    # Replace hardcoded version with dynamic version
+    installer_content = installer_content.replace(
+        "AppVersion=1.0.0", f"AppVersion={version}"
+    )
+
+    # Ensure dist_dir exists for temporary file
+    dist_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write to temporary file for compilation
+    temp_iss = dist_dir / "installer_temp.iss"
+    temp_iss.write_text(installer_content)
 
     # Try to find iscc.exe (Inno Setup Compiler)
     # Common locations on Windows
@@ -258,11 +284,15 @@ def create_windows_package():
 
     print(f"Using Inno Setup Compiler: {iscc_path}")
 
-    # Run Inno Setup Compiler
+    # Run Inno Setup Compiler with temporary file
     result = subprocess.run(
-        [str(iscc_path), str(installer_iss)],
+        [str(iscc_path), str(temp_iss)],
         check=False,
     )
+
+    # Clean up temporary file
+    if temp_iss.exists():
+        temp_iss.unlink()
 
     if result.returncode != 0:
         print(f"Error: Inno Setup Compiler failed with exit code {result.returncode}")
