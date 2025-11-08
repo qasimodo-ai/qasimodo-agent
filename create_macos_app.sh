@@ -1,20 +1,43 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 APP_NAME="pyinstaller-test"
 BUNDLE_NAME="${APP_NAME}.app"
 DIST_DIR="dist"
+BUILD_DIR="${DIST_DIR}/${APP_NAME}"
 APP_DIR="${DIST_DIR}/${BUNDLE_NAME}"
+RESOURCES_APP_DIR="${APP_DIR}/Contents/Resources/app"
+ARCH="$(uname -m)"
+ZIP_NAME="${APP_NAME}-macos-${ARCH}.zip"
 
 echo "Creating macOS .app bundle..."
 
-# Create .app structure
+if [[ ! -d "${BUILD_DIR}" ]]; then
+  echo "Error: ${BUILD_DIR} does not exist. Run the PyInstaller build first."
+  exit 1
+fi
+
+# Reset bundle directory
+rm -rf "${APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
-# Move the PyInstaller output into the bundle
-mv "${DIST_DIR}/${APP_NAME}"/* "${APP_DIR}/Contents/MacOS/"
-rmdir "${DIST_DIR}/${APP_NAME}"
+# Copy the PyInstaller output without altering its layout
+rm -rf "${RESOURCES_APP_DIR}"
+mkdir -p "${RESOURCES_APP_DIR}"
+rsync -a "${BUILD_DIR}/" "${RESOURCES_APP_DIR}/"
+
+# Launcher that delegates to the copied PyInstaller build
+cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+THIS_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_ROOT="$(cd "${THIS_DIR}/.." && pwd)"
+PAYLOAD_DIR="${APP_ROOT}/Resources/app"
+exec "${PAYLOAD_DIR}/$(basename "$0")" "$@"
+EOF
+
+chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
 # Create Info.plist
 cat > "${APP_DIR}/Contents/Info.plist" << 'EOF'
@@ -44,13 +67,12 @@ cat > "${APP_DIR}/Contents/Info.plist" << 'EOF'
 </plist>
 EOF
 
-# Make executable
-chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+# Remove old zip before creating a new one
+rm -f "${DIST_DIR}/${ZIP_NAME}"
 
 # Create a zip for distribution with architecture suffix
-ARCH=$(uname -m)
 cd "${DIST_DIR}"
 zip -r "${APP_NAME}-macos-${ARCH}.zip" "${BUNDLE_NAME}"
 cd ..
 
-echo "Created ${APP_NAME}-macos-${ARCH}.zip"
+echo "Created ${ZIP_NAME}"
