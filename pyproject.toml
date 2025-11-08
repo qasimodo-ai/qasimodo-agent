@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [tool.setuptools.dynamic]
-version = { file = "VERSION.in" }
+version = { file = "VERSION" }
 
 [project.scripts]
 qasimodo-agent = "qasimodo_agent.__main__:cli"
