@@ -141,7 +141,7 @@ def health_check():
 	return True
 
 def cli():
-	parser = argparse.ArgumentParser(description="PyInstaller Test")
+	parser = argparse.ArgumentParser(description="Qasimodo Agent")
 	parser.add_argument("--health", action="store_true", help="Run health check and exit")
 	args = parser.parse_args()
 

@@ -1,7 +1,7 @@
 [project]
-name = "pyinstaller-test"
-version = "0.1.0"
-description = "Add your description here"
+name = "qasimodo-agent"
+dynamic = ["version"]
+description = "Installable agent for QAsimodo"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -10,9 +10,12 @@ dependencies = [
     "playwright>=1.49.0",
 ]
 
+[tool.setuptools.dynamic]
+version = { file = "VERSION.in" }
+
 [project.scripts]
-pyinstaller-test = "pyinstaller_test.__main__:cli"
-build = "pyinstaller_test.build:build"
+qasimodo-agent = "qasimodo_agent.__main__:cli"
+build = "qasimodo_agent.build:build"
 
 [tool.uv]
 package = true

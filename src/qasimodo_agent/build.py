@@ -25,9 +25,9 @@ def build():
 
     args = [
         "pyinstaller",
-        "src/pyinstaller_test/__main__.py",
+        "src/qasimodo_agent/__main__.py",
         "--name",
-        "pyinstaller-test",
+        "qasimodo-agent",
         bundle_mode,
         "--collect-all",
         "browser_use",
@@ -69,7 +69,7 @@ def build():
 
 def create_macos_app():
     """Create macOS .app bundle from PyInstaller output."""
-    app_name = "pyinstaller-test"
+    app_name = "qasimodo-agent"
     bundle_name = f"{app_name}.app"
     dist_dir = Path("dist")
     build_dir = dist_dir / app_name
@@ -123,13 +123,13 @@ exec "${PAYLOAD_DIR}/$(basename "$0")" "$@"
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>pyinstaller-test</string>
+    <string>qasimodo-agent</string>
     <key>CFBundleIdentifier</key>
-    <string>ai.qasimodo.pyinstaller-test</string>
+    <string>ai.qasimodo.qasimodo-agent</string>
     <key>CFBundleName</key>
-    <string>PyInstaller Test</string>
+    <string>Qasimodo Agent</string>
     <key>CFBundleDisplayName</key>
-    <string>PyInstaller Test</string>
+    <string>Qasimodo Agent</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
@@ -163,7 +163,7 @@ exec "${PAYLOAD_DIR}/$(basename "$0")" "$@"
 
 def create_linux_package():
     """Create Linux package from PyInstaller output."""
-    app_name = "pyinstaller-test"
+    app_name = "qasimodo-agent"
     dist_dir = Path("dist")
     package_dir = dist_dir / f"{app_name}-linux"
     build_dir = dist_dir / app_name
@@ -215,7 +215,7 @@ To install system-wide (optional):
 
 def create_windows_package():
     """Create Windows installer using Inno Setup."""
-    app_name = "pyinstaller-test"
+    app_name = "qasimodo-agent"
     dist_dir = Path("dist")
     build_dir = dist_dir / app_name
     installer_iss = Path("installer.iss")

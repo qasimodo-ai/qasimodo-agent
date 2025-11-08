@@ -13,17 +13,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            executable_name: pyinstaller-test
-            artifact_name: pyinstaller-test-linux
+            executable_name: qasimodo-agent
+            artifact_name: qasimodo-agent-linux
           - os: windows-latest
-            executable_name: pyinstaller-test.exe
-            artifact_name: pyinstaller-test-windows
+            executable_name: qasimodo-agent.exe
+            artifact_name: qasimodo-agent-windows
           - os: macos-latest
-            executable_name: pyinstaller-test
-            artifact_name: pyinstaller-test-macos-arm64
+            executable_name: qasimodo-agent
+            artifact_name: qasimodo-agent-macos-arm64
           - os: macos-15-intel
-            executable_name: pyinstaller-test
-            artifact_name: pyinstaller-test-macos-x86_64
+            executable_name: qasimodo-agent
+            artifact_name: qasimodo-agent-macos-x86_64
 
     runs-on: ${{ matrix.os }}
 
@@ -63,25 +63,25 @@ jobs:
       - name: Test Windows executable
         if: runner.os == 'Windows'
         run: |
-          & "dist\pyinstaller-test\pyinstaller-test.exe" --health
+          & "dist\qasimodo-agent\qasimodo-agent.exe" --health
         shell: pwsh
 
       - name: Test macOS executable
         if: runner.os == 'macOS'
         run: |
-          dist/pyinstaller-test/pyinstaller-test --health
+          dist/qasimodo-agent/qasimodo-agent --health
 
       - name: Test Linux executable
         if: runner.os == 'Linux'
         run: |
-          dist/pyinstaller-test-linux/pyinstaller-test --health
+          dist/qasimodo-agent-linux/qasimodo-agent --health
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-setup.exe
+          path: dist/qasimodo-agent-setup.exe
           if-no-files-found: error
 
       - name: Upload macOS ARM64 app
@@ -89,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-macos-arm64.zip
+          path: dist/qasimodo-agent-macos-arm64.zip
           if-no-files-found: error
 
       - name: Upload macOS x86_64 app
@@ -97,7 +97,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-macos-x86_64.zip
+          path: dist/qasimodo-agent-macos-x86_64.zip
           if-no-files-found: error
 
       - name: Upload Linux package
@@ -105,5 +105,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/pyinstaller-test-linux.tar.gz
+          path: dist/qasimodo-agent-linux.tar.gz
           if-no-files-found: error
