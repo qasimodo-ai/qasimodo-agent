@@ -173,8 +173,7 @@ def create_linux_package():
     # Rename the PyInstaller output directory
     if package_dir.exists():
         shutil.rmtree(package_dir)
-    build_dir.rename(package_dir)
-
+    shutil.copytree(build_dir, package_dir)
     # Create a launcher script
     launcher_script = package_dir / f"{app_name}.sh"
     launcher_script.write_text(
