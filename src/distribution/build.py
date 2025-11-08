@@ -230,7 +230,7 @@ def create_windows_package():
     app_name = "qasimodo-agent"
     dist_dir = Path("dist")
     build_dir = dist_dir / app_name
-    installer_iss = Path("distribution/installer.iss")
+    installer_iss = Path("src/distribution/installer.iss")
     version = get_version()
 
     print("Creating Windows installer...")
