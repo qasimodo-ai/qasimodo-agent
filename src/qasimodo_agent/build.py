@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import re
 import platform
 import shutil
 import tarfile
@@ -244,9 +245,9 @@ def create_windows_package():
 
     # Read installer.iss template and replace version
     installer_content = installer_iss.read_text()
-    # Replace hardcoded version with dynamic version
-    installer_content = installer_content.replace(
-        "AppVersion=1.0.0", f"AppVersion={version}"
+    # Replace any hardcoded version with dynamic version
+    installer_content = re.sub(
+        r"AppVersion=\d+\.\d+\.\d+", f"AppVersion={version}", installer_content
     )
 
     # Ensure dist_dir exists for temporary file
