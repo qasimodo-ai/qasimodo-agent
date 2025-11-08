@@ -15,7 +15,7 @@ version = { file = "VERSION" }
 
 [project.scripts]
 qasimodo-agent = "qasimodo_agent.__main__:cli"
-build = "qasimodo_agent.build:build"
+build = "distribution.build:build"
 
 [tool.uv]
 package = true
