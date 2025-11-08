@@ -18,10 +18,10 @@ jobs:
           - os: windows-latest
             executable_name: pyinstaller-test.exe
             artifact_name: pyinstaller-test-windows
-          - os: macos-14  # ARM64 (Apple Silicon)
+          - os: macos-latest
             executable_name: pyinstaller-test
             artifact_name: pyinstaller-test-macos-arm64
-          - os: macos-13  # x86_64 (Intel)
+          - os: macos-15-intel
             executable_name: pyinstaller-test
             artifact_name: pyinstaller-test-macos-x86_64
 
