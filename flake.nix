@@ -1,5 +1,5 @@
 {
-  description = "Python project with PyInstaller";
+  description = "QAsimodo agent";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
