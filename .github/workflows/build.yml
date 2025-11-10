@@ -2,9 +2,9 @@ name: Build Executables
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master ]
   pull_request:
-    branches: [ master, main ]
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
@@ -29,6 +29,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get short commit hash
+        id: commit
+        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+        shell: bash
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -80,7 +85,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-setup.exe
           if-no-files-found: error
 
@@ -88,7 +93,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-macos-arm64.zip
           if-no-files-found: error
 
@@ -96,7 +101,7 @@ jobs:
         if: matrix.os == 'macos-15-intel'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-macos-x86_64.zip
           if-no-files-found: error
 
@@ -104,6 +109,6 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-linux.tar.gz
           if-no-files-found: error

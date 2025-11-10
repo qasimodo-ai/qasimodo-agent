@@ -1,0 +1,92 @@
+name: Create Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'VERSION'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Get short commit hash
+        id: commit
+        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.version.outputs.version }}$"; then
+            echo "Tag v${{ steps.version.outputs.version }} already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag v${{ steps.version.outputs.version }} does not exist"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for build workflow to complete
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'build'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+
+      - name: Download artifacts from build workflow
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build.yml
+          commit: ${{ github.sha }}
+          path: artifacts
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Display structure of downloaded files
+        if: steps.check_tag.outputs.exists == 'false'
+        run: ls -R artifacts
+
+      - name: Rename artifacts with version
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          mkdir -p release-artifacts
+          cp artifacts/qasimodo-agent-windows-${{ steps.commit.outputs.short_sha }}/qasimodo-agent-setup.exe \
+             release-artifacts/qasimodo-agent-windows-v${{ steps.version.outputs.version }}.exe
+          cp artifacts/qasimodo-agent-macos-arm64-${{ steps.commit.outputs.short_sha }}/qasimodo-agent-macos-arm64.zip \
+             release-artifacts/qasimodo-agent-macos-arm64-v${{ steps.version.outputs.version }}.zip
+          cp artifacts/qasimodo-agent-macos-x86_64-${{ steps.commit.outputs.short_sha }}/qasimodo-agent-macos-x86_64.zip \
+             release-artifacts/qasimodo-agent-macos-x86_64-v${{ steps.version.outputs.version }}.zip
+          cp artifacts/qasimodo-agent-linux-${{ steps.commit.outputs.short_sha }}/qasimodo-agent-linux.tar.gz \
+             release-artifacts/qasimodo-agent-linux-v${{ steps.version.outputs.version }}.tar.gz
+          ls -lh release-artifacts
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
