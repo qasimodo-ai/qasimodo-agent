@@ -68,9 +68,7 @@ def build():
             )
             print(f"Including Chromium from: {chromium_dir}")
     elif platform.system() == "Darwin":
-        print(
-            "Skipping Chromium bundling on macOS (users must install Playwright separately)"
-        )
+        print("Skipping Chromium bundling on macOS (users must install Playwright separately)")
 
     result = subprocess.run(args, check=False)
     if result.returncode != 0:
@@ -253,9 +251,7 @@ def create_windows_package():
     # Read installer.iss template and replace version
     installer_content = installer_iss.read_text()
     # Replace any hardcoded version with dynamic version
-    installer_content = re.sub(
-        r"AppVersion=\d+\.\d+\.\d+", f"AppVersion={version}", installer_content
-    )
+    installer_content = re.sub(r"AppVersion=\d+\.\d+\.\d+", f"AppVersion={version}", installer_content)
 
     # Ensure dist_dir exists for temporary file
     dist_dir.mkdir(parents=True, exist_ok=True)
@@ -310,6 +306,4 @@ def create_windows_package():
     if installer_exe.exists():
         print(f"Created {installer_exe.name}")
     else:
-        print(
-            f"Warning: Expected installer {installer_exe} not found after compilation."
-        )
+        print(f"Warning: Expected installer {installer_exe} not found after compilation.")

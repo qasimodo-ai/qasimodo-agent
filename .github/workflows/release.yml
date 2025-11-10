@@ -1,12 +1,10 @@
 name: Create Release
-
 on:
   workflow_run:
     workflows: ["Build Executables"]
     types: [completed]
     branches: [master]
   workflow_dispatch:
-
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -18,14 +16,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-
       - name: Read version from pyproject.toml
         id: version
         run: |
           VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $VERSION"
-
       - name: Check if version in pyproject.toml was modified
         id: check_version
         run: |
@@ -38,12 +34,10 @@ jobs:
             echo "version_changed=false" >> $GITHUB_OUTPUT
             echo "Version unchanged ($CURR_VERSION), skipping release"
           fi
-
       - name: Get short commit hash
         if: steps.check_version.outputs.version_changed == 'true'
         id: commit
         run: echo "short_sha=$(echo ${{ github.event.workflow_run.head_sha || github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-
       - name: Check if tag exists
         if: steps.check_version.outputs.version_changed == 'true'
         id: check_tag
@@ -55,7 +49,6 @@ jobs:
             echo "Tag v${{ steps.version.outputs.version }} does not exist"
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
-
       - name: Download artifacts from build workflow
         if: steps.check_version.outputs.version_changed == 'true' && steps.check_tag.outputs.exists == 'false'
         uses: dawidd6/action-download-artifact@v3
@@ -63,7 +56,6 @@ jobs:
           workflow: build.yml
           commit: ${{ github.event.workflow_run.head_sha || github.sha }}
           path: artifacts
-
       - name: Create and push tag
         if: steps.check_version.outputs.version_changed == 'true' && steps.check_tag.outputs.exists == 'false'
         run: |
@@ -71,11 +63,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
-
       - name: Display structure of downloaded files
         if: steps.check_version.outputs.version_changed == 'true' && steps.check_tag.outputs.exists == 'false'
         run: ls -R artifacts
-
       - name: Rename artifacts with version
         if: steps.check_version.outputs.version_changed == 'true' && steps.check_tag.outputs.exists == 'false'
         run: |
@@ -89,7 +79,6 @@ jobs:
           cp artifacts/qasimodo-agent-linux-${{ steps.commit.outputs.short_sha }}/qasimodo-agent-linux.tar.gz \
              release-artifacts/qasimodo-agent-linux-v${{ steps.version.outputs.version }}.tar.gz
           ls -lh release-artifacts
-
       - name: Create GitHub Release
         if: steps.check_version.outputs.version_changed == 'true' && steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
