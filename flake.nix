@@ -6,6 +6,11 @@
 
     flake-parts.url = "github:hercules-ci/flake-parts";
 
+    make-shell = {
+      url = "github:nicknovitski/make-shell";
+      inputs.flake-compat.follows = "";
+    };
+
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "";
@@ -40,98 +45,15 @@
   };
 
   outputs =
-    inputs@{ flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
-
-      imports = with inputs; [
-        treefmt-nix.flakeModule
-        git-hooks.flakeModule
-      ];
-
-      perSystem =
-        {
-          config,
-          pkgs,
-          lib,
-          ...
-        }:
-        let
-          pyproject = lib.importTOML ./pyproject.toml;
-
-          python = pkgs.python313;
-
-          workspaceRoot = lib.fileset.toSource {
-            root = ./.;
-            fileset = lib.fileset.unions [
-              ./pyproject.toml
-              ./uv.lock
-              ./src
-            ];
-          };
-
-          workspace = inputs.uv2nix.lib.workspace.loadWorkspace { inherit workspaceRoot; };
-
-          overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
-
-          pythonSet = (pkgs.callPackage inputs.pyproject-nix.build.packages { inherit python; }).overrideScope (
-            lib.composeManyExtensions [
-              inputs.pyproject-build-systems.overlays.default
-              overlay
-            ]
-          );
-
-          inherit (pkgs.callPackages inputs.pyproject-nix.build.util { }) mkApplication;
-        in
-        {
-          treefmt = {
-            programs = {
-              nixfmt = {
-                enable = true;
-                width = 120;
-              };
-              nixf-diagnose.enable = true;
-              ruff-format = {
-                enable = true;
-                lineLength = 120;
-              };
-              ruff-check.enable = true;
-              yamlfmt.enable = true;
-            };
-          };
-
-          pre-commit.settings.hooks.treefmt.enable = true;
-
-          packages = {
-            default = config.packages.qasimodo-agent;
-
-            qasimodo-agent = mkApplication {
-              venv = pythonSet.mkVirtualEnv "qasimodo-agent-env" workspace.deps.default;
-              package = pythonSet.qasimodo-agent.overrideAttrs (old: {
-                version = pyproject.project.version;
-                __intentionallyOverridingVersion = true;
-              });
-            };
-          };
-
-          devShells.default = pkgs.mkShell {
-            packages = with pkgs; [
-              uv
-              pythonSet.python
-              playwright-driver.browsers
-            ];
-            shellHook = ''
-              ${config.pre-commit.installationScript}
-              export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
-              export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
-              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
-            '';
-          };
-        };
-    };
+    inputs:
+    inputs.flake-parts.lib.mkFlake { inherit inputs; } (
+      { lib, ... }:
+      {
+        imports = lib.flip lib.pipe [
+          (lib.map builtins.toString)
+          (lib.filter (lib.hasSuffix ".nix"))
+          (lib.filter (f: !lib.hasInfix "/_" f))
+        ] (lib.filesystem.listFilesRecursive ./nix);
+      }
+    );
 }
