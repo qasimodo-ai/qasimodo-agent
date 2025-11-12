@@ -43,6 +43,10 @@
           package = pythonSet.qasimodo-agent.overrideAttrs (old: {
             version = pyproject.project.version;
             __intentionallyOverridingVersion = true;
+            meta = {
+              mainProgram = "qasimodo-agent";
+              maintainers = [ lib.maintainers.aciceri ];
+            };
           });
         };
       };
