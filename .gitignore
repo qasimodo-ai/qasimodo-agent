@@ -18,3 +18,7 @@ result
 
 # git-hooks.nix
 .pre-commit-config.yaml
+
+# process-compose
+logs
+nats-data

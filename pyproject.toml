@@ -9,11 +9,13 @@ dependencies = [
     "browser-use>=0.8.0",
     "pyinstaller>=6.16.0",
     "playwright>=1.49.0",
+    "nats-py>=2.10.0",
 ]
 
 [project.scripts]
 qasimodo-agent = "qasimodo_agent.__main__:cli"
 build = "distribution.build:build"
+simulate-agent = "qasimodo_agent.simulate_agent:cli"
 
 [tool.uv]
 package = true
