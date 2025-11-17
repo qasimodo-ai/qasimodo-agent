@@ -10,6 +10,7 @@ dependencies = [
     "pyinstaller>=6.16.0",
     "playwright>=1.49.0",
     "nats-py>=2.10.0",
+    "protobuf>=5.28.0",
 ]
 
 [project.scripts]
