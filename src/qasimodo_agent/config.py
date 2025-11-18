@@ -4,7 +4,7 @@ import argparse
 import os
 from dataclasses import dataclass
 
-from qasimodo_agent.state import get_or_create_agent_id
+from qasimodo_agent.state import get_agent_version, get_or_create_agent_id
 
 
 @dataclass(slots=True)
@@ -66,7 +66,7 @@ class AgentConfig:
         browser_headless = str(os.environ.get("QASIMODO_AGENT_BROWSER_HEADLESS", "true")).lower() == "true"
         chromium_sandbox = str(os.environ.get("QASIMODO_AGENT_CHROMIUM_SANDBOX", "true")).lower() == "true"
         max_steps = int(os.environ.get("QASIMODO_AGENT_MAX_STEPS", "60"))
-        version = os.environ.get("QASIMODO_AGENT_VERSION", "dev")
+        version = get_agent_version()
         return cls(
             agent_id=agent_id,
             project_id=project_id,
