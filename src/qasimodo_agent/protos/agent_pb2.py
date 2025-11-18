@@ -18,7 +18,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x0b\x61gent.proto\x12\x0eqasimodo.agent"\xaf\x01\n\tAgentTask\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x12\n\nproject_id\x18\x02 \x01(\t\x12\x0e\n\x06run_id\x18\x03 \x01(\t\x12\x13\n\x0btestbook_id\x18\x04 \x01(\t\x12\x16\n\x0e\x65nvironment_id\x18\x05 \x01(\t\x12\x14\n\x0cinstructions\x18\x06 \x01(\t\x12\x15\n\rcore_base_url\x18\x07 \x01(\t\x12\x12\n\ncore_token\x18\x08 \x01(\t"\xdf\x01\n\x0b\x41gentResult\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x12\n\nproject_id\x18\x02 \x01(\t\x12\x0e\n\x06run_id\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\x12\r\n\x05\x65rror\x18\x06 \x01(\t\x12\x12\n\nstarted_at\x18\x07 \x01(\t\x12\x13\n\x0b\x66inished_at\x18\x08 \x01(\t\x12\x14\n\x0chistory_json\x18\t \x01(\t\x12\x13\n\x0btestbook_id\x18\n \x01(\t\x12\x16\n\x0e\x65nvironment_id\x18\x0b \x01(\t"\x80\x01\n\x0e\x41gentHeartbeat\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x11\n\ttimestamp\x18\x03 \x01(\x04\x12\x0f\n\x07version\x18\x04 \x01(\t\x12\x12\n\nproject_id\x18\x05 \x01(\t\x12\x14\n\x0c\x63\x61pabilities\x18\x06 \x03(\tb\x06proto3'
+    b'\n\x0b\x61gent.proto\x12\x0eqasimodo.agent"\\\n\rAgentMetadata\x12\x10\n\x08\x61gent_id\x18\x01 \x01(\t\x12\x12\n\nproject_id\x18\x02 \x01(\t\x12\x0e\n\x06run_id\x18\x03 \x01(\t\x12\x15\n\ragent_version\x18\x04 \x01(\t"\xaa\x01\n\tAgentTask\x12/\n\x08metadata\x18\x01 \x01(\x0b\x32\x1d.qasimodo.agent.AgentMetadata\x12\x13\n\x0btestbook_id\x18\x02 \x01(\t\x12\x16\n\x0e\x65nvironment_id\x18\x03 \x01(\t\x12\x14\n\x0cinstructions\x18\x04 \x01(\t\x12\x15\n\rcore_base_url\x18\x05 \x01(\t\x12\x12\n\ncore_token\x18\x06 \x01(\t"\xc8\x02\n\x0f\x41gentStepResult\x12\x12\n\nstep_index\x18\x01 \x01(\r\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x13\n\x0b\x61\x63tion_name\x18\x03 \x01(\t\x12\x1a\n\x12model_actions_json\x18\x04 \x01(\t\x12\x1a\n\x12model_outputs_json\x18\x05 \x01(\t\x12\x1b\n\x13\x61\x63tion_results_json\x18\x06 \x01(\t\x12\x13\n\x0bobservation\x18\x07 \x01(\t\x12\r\n\x05\x65rror\x18\x08 \x01(\t\x12\x0b\n\x03url\x18\t \x01(\t\x12\x1c\n\x14screenshot_mime_type\x18\n \x01(\t\x12\x18\n\x10screenshot_bytes\x18\x0b \x01(\x0c\x12\x17\n\x0fscreenshot_path\x18\x0c \x01(\t\x12\x11\n\ttimestamp\x18\r \x01(\t\x12\x12\n\nstate_json\x18\x0e \x01(\t"\xd6\x02\n\x0b\x41gentResult\x12/\n\x08metadata\x18\x01 \x01(\x0b\x32\x1d.qasimodo.agent.AgentMetadata\x12-\n\x04kind\x18\x02 \x01(\x0e\x32\x1f.qasimodo.agent.AgentResultKind\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x0f\n\x07message\x18\x04 \x01(\t\x12\r\n\x05\x65rror\x18\x05 \x01(\t\x12\x12\n\nstarted_at\x18\x06 \x01(\t\x12\x13\n\x0b\x66inished_at\x18\x07 \x01(\t\x12\x14\n\x0chistory_json\x18\x08 \x01(\t\x12\x13\n\x0btestbook_id\x18\t \x01(\t\x12\x16\n\x0e\x65nvironment_id\x18\n \x01(\t\x12-\n\x04step\x18\x0b \x01(\x0b\x32\x1f.qasimodo.agent.AgentStepResult\x12\x1c\n\x14partial_history_json\x18\x0c \x01(\t"z\n\x0e\x41gentHeartbeat\x12/\n\x08metadata\x18\x01 \x01(\x0b\x32\x1d.qasimodo.agent.AgentMetadata\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x11\n\ttimestamp\x18\x03 \x01(\x04\x12\x14\n\x0c\x63\x61pabilities\x18\x04 \x03(\t*K\n\x0f\x41gentResultKind\x12\x1c\n\x18\x41GENT_RESULT_KIND_STATUS\x10\x00\x12\x1a\n\x16\x41GENT_RESULT_KIND_STEP\x10\x01\x62\x06proto3'
 )
 
 _globals = globals()
@@ -26,10 +26,16 @@ _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "agent_pb2", _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
-    _globals["_AGENTTASK"]._serialized_start = 32
-    _globals["_AGENTTASK"]._serialized_end = 207
-    _globals["_AGENTRESULT"]._serialized_start = 210
-    _globals["_AGENTRESULT"]._serialized_end = 433
-    _globals["_AGENTHEARTBEAT"]._serialized_start = 436
-    _globals["_AGENTHEARTBEAT"]._serialized_end = 564
+    _globals["_AGENTRESULTKIND"]._serialized_start = 1098
+    _globals["_AGENTRESULTKIND"]._serialized_end = 1173
+    _globals["_AGENTMETADATA"]._serialized_start = 31
+    _globals["_AGENTMETADATA"]._serialized_end = 123
+    _globals["_AGENTTASK"]._serialized_start = 126
+    _globals["_AGENTTASK"]._serialized_end = 296
+    _globals["_AGENTSTEPRESULT"]._serialized_start = 299
+    _globals["_AGENTSTEPRESULT"]._serialized_end = 627
+    _globals["_AGENTRESULT"]._serialized_start = 630
+    _globals["_AGENTRESULT"]._serialized_end = 972
+    _globals["_AGENTHEARTBEAT"]._serialized_start = 974
+    _globals["_AGENTHEARTBEAT"]._serialized_end = 1096
 # @@protoc_insertion_point(module_scope)
