@@ -26,6 +26,10 @@ docker run ghcr.io/qasimodo-ai/qasimodo-agent:latest
 
 TODO
 
+## Agent state
+
+The agent persists local state in `~/.qasimodo-agent/agents.json`. This file keeps a stable agent ID per project alongside metadata (such as the binary version pulled from `pyproject.toml`) and will accumulate additional fields over time.
+
 ## Development
 
 We recommend using [Nix](https://nixos.org) with [direnv](https://direnv.net) for development. Once installed, the dev shell will automatically load with all required tools.
