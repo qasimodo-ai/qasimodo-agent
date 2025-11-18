@@ -33,7 +33,6 @@ def health_check() -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Qasimodo agent")
     parser.add_argument("--agent-id", help="Identifier for this agent instance")
-    parser.add_argument("--project-id", help="Project ID this agent belongs to")
     parser.add_argument("--nats-url", help="NATS connection string")
     parser.add_argument("--heartbeat-interval", type=int, help="Heartbeat interval in seconds")
     parser.add_argument("--health", action="store_true", help="Run health check and exit")

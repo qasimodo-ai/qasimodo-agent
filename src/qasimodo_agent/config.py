@@ -26,7 +26,6 @@ class LLMConfig:
 @dataclass(slots=True)
 class AgentConfig:
     agent_id: str
-    project_id: str
     nats_url: str
     heartbeat_interval: int
     stream_name: str = "AGENTS"
@@ -55,12 +54,13 @@ class AgentConfig:
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "AgentConfig":
-        project_id = args.project_id or os.environ.get("QASIMODO_AGENT_PROJECT_ID")
-        if not project_id:
-            raise SystemExit("Project ID missing. Use --project-id or set QASIMODO_AGENT_PROJECT_ID")
-        agent_id = args.agent_id or os.environ.get("QASIMODO_AGENT_ID")
-        if not agent_id:
-            agent_id = get_or_create_agent_id(project_id)
+        project_id_env = os.environ.get("QASIMODO_AGENT_PROJECT_ID")
+        if project_id_env:
+            agent_id = get_or_create_agent_id(project_id_env)
+        else:
+            agent_id = args.agent_id or os.environ.get("QASIMODO_AGENT_ID")
+            if not agent_id:
+                agent_id = get_or_create_agent_id()
         nats_url = args.nats_url or os.environ.get("QASIMODO_NATS_URL", "nats://localhost:4222")
         heartbeat_interval = int(args.heartbeat_interval or os.environ.get("QASIMODO_AGENT_HEARTBEAT_INTERVAL", "30"))
         browser_headless = str(os.environ.get("QASIMODO_AGENT_BROWSER_HEADLESS", "true")).lower() == "true"
@@ -69,7 +69,6 @@ class AgentConfig:
         version = get_agent_version()
         return cls(
             agent_id=agent_id,
-            project_id=project_id,
             nats_url=nats_url,
             heartbeat_interval=heartbeat_interval,
             browser_headless=browser_headless,
