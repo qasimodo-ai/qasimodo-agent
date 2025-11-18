@@ -10,6 +10,7 @@ from pathlib import Path
 
 STATE_DIR = Path.home() / ".qasimodo-agent"
 STATE_FILE = STATE_DIR / "agents.json"
+DEFAULT_AGENT_KEY = "__default__"
 
 
 @dataclass(slots=True)
@@ -81,18 +82,34 @@ def get_agent_version() -> str:
     return version
 
 
-def get_or_create_agent_id(project_id: str) -> str:
+def get_or_create_agent_id(project_id: str | None = None) -> str:
     state = _load_state()
-    existing = state.agents.get(project_id)
-    if existing:
-        return existing
-    if state.agents:
-        agent_id = next(iter(state.agents.values()))
-    else:
-        agent_id = str(uuid.uuid4())
-    state.agents[project_id] = agent_id
+    if project_id:
+        existing = state.agents.get(project_id)
+        if existing:
+            return existing
+    default_agent = state.agents.get(DEFAULT_AGENT_KEY)
+    if default_agent:
+        if project_id and state.agents.get(project_id) != default_agent:
+            state.agents[project_id] = default_agent
+            _save_state(state)
+        return default_agent
+    agent_id = str(uuid.uuid4())
+    state.agents[project_id or DEFAULT_AGENT_KEY] = agent_id
     _save_state(state)
     return agent_id
 
 
-__all__ = ["get_agent_version", "get_or_create_agent_id"]
+def remember_project_agent(project_id: str | None, agent_id: str) -> None:
+    if not project_id:
+        return
+    state = _load_state()
+    if state.agents.get(project_id) == agent_id:
+        return
+    state.agents[project_id] = agent_id
+    if DEFAULT_AGENT_KEY not in state.agents:
+        state.agents[DEFAULT_AGENT_KEY] = agent_id
+    _save_state(state)
+
+
+__all__ = ["get_agent_version", "get_or_create_agent_id", "remember_project_agent"]
