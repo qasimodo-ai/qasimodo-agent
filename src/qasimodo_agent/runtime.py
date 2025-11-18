@@ -11,6 +11,7 @@ import nats
 from browser_use import Agent as BrowserUseAgent
 from browser_use import Browser, ChatOpenAI
 from google.protobuf.message import DecodeError
+from nats.errors import DrainTimeoutError
 
 from qasimodo_agent.config import AgentConfig, LLMConfig
 from qasimodo_agent.proto import AgentHeartbeat, AgentResult, AgentTask
@@ -41,7 +42,10 @@ class AgentRuntime:
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._heartbeat_task
             if self._nc:
-                await self._nc.drain()
+                try:
+                    await self._nc.drain()
+                except DrainTimeoutError:
+                    LOGGER.warning("NATS drain timed out; forcing close")
                 await self._nc.close()
 
     async def _ensure_stream(self) -> None:
