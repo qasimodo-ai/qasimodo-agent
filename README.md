@@ -49,6 +49,15 @@ Run the agent:
 uv run qasimodo-agent
 ```
 
+Run the agent with the Rich TUI dashboard:
+```bash
+QASIMODO_AGENT_LLM_API_KEY=<your_key> \
+CHROMIUM_PATH=<path_to_chromium> \
+QASIMODO_NATS_URL=nats://nats.qasimodo.com:4222 \
+uv run qasimodo-agent-tui
+```
+The TUI shows agent metadata (status, version, last heartbeat) and a live log feed. Use Ctrl+C to stop.
+
 ### Reproducible builds with Nix
 
 Build the package reproducibly:
