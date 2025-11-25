@@ -169,6 +169,7 @@ def render(state: AgentState) -> Panel:
     agent_table.add_row("Agent", state.agent_id)
     agent_table.add_row("Version", state.version or "—")
     agent_table.add_row("NATS", state.nats_url)
+    agent_table.add_row("Tasks", f"agents.{state.agent_id}.tasks")
     agent_table.add_row("Status", "[green]online[/green]" if status == "online" else "[red]offline[/red]")
     if state.last_heartbeat:
         agent_table.add_row("Last heartbeat", state.last_heartbeat.isoformat())
