@@ -11,12 +11,14 @@ dependencies = [
     "playwright>=1.49.0",
     "nats-py>=2.10.0",
     "protobuf>=5.28.0",
+    "rich>=13.9.0",
 ]
 
 [project.scripts]
 qasimodo-agent = "qasimodo_agent.__main__:cli"
 build = "distribution.build:build"
 simulate-agent = "qasimodo_agent.simulate_agent:cli"
+qasimodo-agent-tui = "qasimodo_agent.tui:main"
 
 [tool.uv]
 package = true
