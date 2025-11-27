@@ -15,11 +15,9 @@ dependencies = [
 ]
 
 [project.scripts]
-qasimodo-agent = "qasimodo_agent.tui:main"
-qasimodo-agent-headless = "qasimodo_agent.__main__:cli"
+qasimodo-agent = "qasimodo_agent.__main__:cli"
 build = "distribution.build:build"
 simulate-agent = "qasimodo_agent.simulate_agent:cli"
-qasimodo-agent-tui = "qasimodo_agent.tui:main"
 
 [tool.uv]
 package = true
