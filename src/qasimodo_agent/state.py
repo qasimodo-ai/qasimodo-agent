@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -75,7 +74,7 @@ def _read_pyproject_version() -> str:
 
 def get_agent_version() -> str:
     state = _load_state()
-    version = os.environ.get("QASIMODO_AGENT_VERSION") or _read_pyproject_version()
+    version = _read_pyproject_version()
     if state.version != version:
         state.version = version
         _save_state(state)
