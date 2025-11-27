@@ -14,7 +14,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
-from qasimodo_agent.browser import ensure_chromium_installed, find_bundled_chromium
+from qasimodo_agent.browser import ensure_chromium_installed, find_bundled_chromium, find_cached_chromium
 from qasimodo_agent.config import AgentConfig, LLMConfig
 from qasimodo_agent.proto import AgentHeartbeat, AgentResult, AgentResultKind
 from qasimodo_agent.runtime import AgentRuntime
@@ -72,9 +72,9 @@ class AgentController:
         )
         llm_config = LLMConfig.from_env()
         ensure_chromium_installed()
-        chromium_path = find_bundled_chromium() or os.environ.get("CHROMIUM_PATH")
+        chromium_path = find_bundled_chromium() or find_cached_chromium()
         if not chromium_path:
-            raise RuntimeError("Chromium executable not found. Set CHROMIUM_PATH or bundle the browser.")
+            raise RuntimeError("Chromium executable not found. Run `playwright install chromium`.")
 
         runtime = AgentRuntime(config=config, llm_config=llm_config, chromium_path=chromium_path)
         self.stop_event = asyncio.Event()
