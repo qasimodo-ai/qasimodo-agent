@@ -23,7 +23,6 @@ from qasimodo_agent.browser import ensure_chromium_installed
 from qasimodo_agent.config import AgentConfig, LLMConfig
 from qasimodo_agent.proto import AgentHeartbeat, AgentResult, AgentResultKind
 from qasimodo_agent.runtime import AgentRuntime
-from qasimodo_agent.state import get_agent_version
 
 LOGGER = logging.getLogger("qasimodo.agent")
 console = Console()
@@ -70,28 +69,14 @@ class AgentController:
         self.monitor_nc: nats.NATS | None = None
         self.event_queue: asyncio.Queue[AgentEvent] = asyncio.Queue()
 
-    async def start_runtime(self, *, nats_url: str, agent_id: str) -> None:
+    async def start_runtime(self, *, agent_config: AgentConfig, llm_config: LLMConfig) -> None:
         await self.stop()
-        version = get_agent_version()
-        heartbeat_interval = int(os.environ.get("QASIMODO_AGENT_HEARTBEAT_INTERVAL", "30"))
-        browser_headless = str(os.environ.get("QASIMODO_AGENT_BROWSER_HEADLESS", "true")).lower() == "true"
-        chromium_sandbox = str(os.environ.get("QASIMODO_AGENT_CHROMIUM_SANDBOX", "true")).lower() == "true"
-        max_steps = int(os.environ.get("QASIMODO_AGENT_MAX_STEPS", "60"))
-        config = AgentConfig(
-            agent_id=agent_id,
-            nats_url=nats_url,
-            heartbeat_interval=heartbeat_interval,
-            browser_headless=browser_headless,
-            chromium_sandbox=chromium_sandbox,
-            max_steps=max_steps,
-            version=version,
-        )
-        llm_config = LLMConfig.from_env()
+        config = agent_config
         ensure_chromium_installed()
         runtime = AgentRuntime(config=config, llm_config=llm_config)
         self.stop_event = asyncio.Event()
         self.runtime_task = asyncio.create_task(runtime.start(self.stop_event))
-        await self._start_monitor(nats_url=nats_url, agent_id=agent_id)
+        await self._start_monitor(nats_url=config.nats_url, agent_id=config.agent_id)
         await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent started"}))
 
     async def _start_monitor(self, *, nats_url: str, agent_id: str) -> None:
@@ -161,8 +146,13 @@ class AgentController:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.monitor_task
         if self.monitor_nc:
-            await self.monitor_nc.drain()
-            await self.monitor_nc.close()
+            try:
+                await self.monitor_nc.drain()
+            except Exception:
+                # Swallow drain errors on shutdown; not critical on exit.
+                pass
+            with contextlib.suppress(Exception):
+                await self.monitor_nc.close()
         self.runtime_task = None
         self.stop_event = None
         self.monitor_task = None
@@ -216,9 +206,11 @@ async def drain_events(controller: AgentController, state: AgentState) -> None:
             )
 
 
-async def run_tui(state: AgentState, controller: AgentController) -> None:
+async def run_tui(
+    state: AgentState, controller: AgentController, llm_config: LLMConfig, agent_config: AgentConfig
+) -> None:
     console.print(f"Starting agent {state.agent_id} on {state.nats_url}")
-    await controller.start_runtime(nats_url=state.nats_url, agent_id=state.agent_id)
+    await controller.start_runtime(agent_config=agent_config, llm_config=llm_config)
     quit_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -257,9 +249,11 @@ async def run_tui(state: AgentState, controller: AgentController) -> None:
     await controller.stop()
 
 
-async def run_headless(state: AgentState, controller: AgentController) -> None:
+async def run_headless(
+    state: AgentState, controller: AgentController, llm_config: LLMConfig, agent_config: AgentConfig
+) -> None:
     console.print(f"Starting agent {state.agent_id} on {state.nats_url}")
-    await controller.start_runtime(nats_url=state.nats_url, agent_id=state.agent_id)
+    await controller.start_runtime(agent_config=agent_config, llm_config=llm_config)
 
     while True:
         await drain_events(controller, state)
@@ -267,17 +261,44 @@ async def run_headless(state: AgentState, controller: AgentController) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Qasimodo agent")
-    parser.add_argument("--agent-id", help="Identifier for this agent instance")
-    parser.add_argument("--nats-url", help="NATS connection string")
+    parser = argparse.ArgumentParser(
+        description="Qasimodo agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="\n".join(
+            [
+                "Quick start:",
+                "  1) export QASIMODO_AGENT_LLM_API_KEY=your_key",
+                "  2) run: uv run qasimodo-agent   (default TUI; pass --mode headless for non-interactive)",
+                "  3) press 'q' in the TUI for a safe shutdown",
+            ]
+        ),
+    )
     parser.add_argument("--heartbeat-interval", type=int, help="Heartbeat interval in seconds")
     parser.add_argument("--health", action="store_true", help="Run health check and exit")
     parser.add_argument("--log-level", default=os.environ.get("QASIMODO_AGENT_LOG_LEVEL", "INFO"))
     parser.add_argument("--mode", choices=["tui", "headless"], default="tui")
+    parser.add_argument("--llm-api-key", help="LLM API key")
+    parser.add_argument("--llm-model", help="LLM model (default google/gemini-2.0-flash-exp)")
+    parser.add_argument("--llm-base-url", help="LLM base URL (default https://openrouter.ai/api/v1)")
+    parser.add_argument(
+        "--browser-headless",
+        choices=["true", "false"],
+        help="Run Chromium headless (default true; env QASIMODO_AGENT_BROWSER_HEADLESS)",
+    )
+    parser.add_argument(
+        "--chromium-sandbox",
+        choices=["true", "false"],
+        help="Enable Chromium sandbox (default true; env QASIMODO_AGENT_CHROMIUM_SANDBOX)",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        help="Maximum browser steps per task (default 60; env QASIMODO_AGENT_MAX_STEPS)",
+    )
     return parser.parse_args()
 
 
-async def _async_main(config: AgentConfig, mode: str) -> None:
+async def _async_main(config: AgentConfig, mode: str, llm_config: LLMConfig) -> None:
     agent_id = config.agent_id
     nats_url = config.nats_url
     state = AgentState(
@@ -301,20 +322,24 @@ async def _async_main(config: AgentConfig, mode: str) -> None:
     ensure_chromium_installed()
 
     if mode == "tui":
-        await run_tui(state, controller)
+        await run_tui(state, controller, llm_config, config)
     else:
-        await run_headless(state, controller)
+        await run_headless(state, controller, llm_config, config)
 
 
 def cli() -> None:
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    # Keep NATS internal shutdown noise out of user logs.
+    logging.getLogger("nats").setLevel(logging.CRITICAL)
+    logging.getLogger("nats.aio.client").setLevel(logging.CRITICAL)
     if args.health:
         success = health_check()
         sys.exit(0 if success else 1)
     config = AgentConfig.from_args(args)
     try:
-        asyncio.run(_async_main(config, args.mode))
+        llm_config = LLMConfig.from_args(args)
+        asyncio.run(_async_main(config, args.mode, llm_config))
     except KeyboardInterrupt:
         pass
 

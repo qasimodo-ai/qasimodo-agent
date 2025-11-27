@@ -6,6 +6,15 @@ from dataclasses import dataclass
 
 from qasimodo_agent.state import get_agent_version, get_or_create_agent_id
 
+DEFAULT_NATS_URL = "nats://localhost:4222"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).lower() in {"1", "true", "yes", "y", "on"}
+
 
 @dataclass(slots=True)
 class LLMConfig:
@@ -14,12 +23,12 @@ class LLMConfig:
     base_url: str
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
-        model = os.environ.get("QASIMODO_AGENT_LLM_MODEL", "google/gemini-2.0-flash-exp")
-        base_url = os.environ.get("QASIMODO_AGENT_LLM_BASE_URL", "https://openrouter.ai/api/v1")
-        api_key = os.environ.get("QASIMODO_AGENT_LLM_API_KEY")
+    def from_args(cls, args: argparse.Namespace) -> "LLMConfig":
+        model = args.llm_model or os.environ.get("QASIMODO_AGENT_LLM_MODEL", "google/gemini-2.0-flash-exp")
+        base_url = args.llm_base_url or os.environ.get("QASIMODO_AGENT_LLM_BASE_URL", "https://openrouter.ai/api/v1")
+        api_key = args.llm_api_key or os.environ.get("QASIMODO_AGENT_LLM_API_KEY")
         if not api_key:
-            raise RuntimeError("Missing QASIMODO_AGENT_LLM_API_KEY environment variable")
+            raise RuntimeError("Missing LLM API key (provide --llm-api-key or QASIMODO_AGENT_LLM_API_KEY)")
         return cls(model=model, api_key=api_key, base_url=base_url)
 
 
@@ -54,18 +63,16 @@ class AgentConfig:
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "AgentConfig":
-        project_id_env = os.environ.get("QASIMODO_AGENT_PROJECT_ID")
-        if project_id_env:
-            agent_id = get_or_create_agent_id(project_id_env)
-        else:
-            agent_id = args.agent_id or os.environ.get("QASIMODO_AGENT_ID")
-            if not agent_id:
-                agent_id = get_or_create_agent_id()
-        nats_url = args.nats_url or os.environ.get("QASIMODO_NATS_URL", "nats://localhost:4222")
+        agent_id = get_or_create_agent_id()
+        nats_url = DEFAULT_NATS_URL
         heartbeat_interval = int(args.heartbeat_interval or os.environ.get("QASIMODO_AGENT_HEARTBEAT_INTERVAL", "30"))
-        browser_headless = str(os.environ.get("QASIMODO_AGENT_BROWSER_HEADLESS", "true")).lower() == "true"
-        chromium_sandbox = str(os.environ.get("QASIMODO_AGENT_CHROMIUM_SANDBOX", "true")).lower() == "true"
-        max_steps = int(os.environ.get("QASIMODO_AGENT_MAX_STEPS", "60"))
+        browser_headless = _env_bool("QASIMODO_AGENT_BROWSER_HEADLESS", True)
+        chromium_sandbox = _env_bool("QASIMODO_AGENT_CHROMIUM_SANDBOX", True)
+        if args.browser_headless:
+            browser_headless = args.browser_headless.lower() == "true"
+        if args.chromium_sandbox:
+            chromium_sandbox = args.chromium_sandbox.lower() == "true"
+        max_steps = int(args.max_steps or os.environ.get("QASIMODO_AGENT_MAX_STEPS", "60"))
         version = get_agent_version()
         return cls(
             agent_id=agent_id,
