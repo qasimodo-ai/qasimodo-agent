@@ -7,7 +7,7 @@ import os
 import signal
 import sys
 
-from qasimodo_agent.browser import ensure_chromium_installed, find_bundled_chromium
+from qasimodo_agent.browser import ensure_chromium_installed
 from qasimodo_agent.config import AgentConfig, LLMConfig
 from qasimodo_agent.runtime import AgentRuntime
 
@@ -43,10 +43,7 @@ def parse_args() -> argparse.Namespace:
 async def _async_main(config: AgentConfig) -> None:
     llm_config = LLMConfig.from_env()
     ensure_chromium_installed()
-    chromium_path = find_bundled_chromium() or os.environ.get("CHROMIUM_PATH")
-    if not chromium_path:
-        raise SystemExit("Chromium executable not found. Set CHROMIUM_PATH or bundle the browser.")
-    runtime = AgentRuntime(config=config, llm_config=llm_config, chromium_path=chromium_path)
+    runtime = AgentRuntime(config=config, llm_config=llm_config)
     stop_event = asyncio.Event()
 
     def _handle_shutdown() -> None:
