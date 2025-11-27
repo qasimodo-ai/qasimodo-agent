@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -139,4 +140,42 @@ def clear_core_token(agent_id: str) -> None:
         _save_state(state)
 
 
-__all__ = ["get_agent_version", "get_or_create_agent_id", "remember_project_agent"]
+def get_core_token_record(agent_id: str) -> dict[str, str] | None:
+    state = _load_state()
+    tokens = state.core_tokens or {}
+    return tokens.get(agent_id)
+
+
+def is_core_token_valid(agent_id: str, now: datetime | None = None) -> bool:
+    record = get_core_token_record(agent_id)
+    if not record:
+        return False
+    token = record.get("token")
+    if not token:
+        clear_core_token(agent_id)
+        return False
+    expires_at = record.get("expires_at") or ""
+    if not expires_at:
+        return True
+    try:
+        expiry_dt = datetime.fromisoformat(expires_at)
+    except Exception:  # noqa: BLE001
+        clear_core_token(agent_id)
+        return False
+    now = now or datetime.now(timezone.utc)
+    if now < expiry_dt:
+        return True
+    clear_core_token(agent_id)
+    return False
+
+
+__all__ = [
+    "get_agent_version",
+    "get_or_create_agent_id",
+    "remember_project_agent",
+    "get_core_token",
+    "save_core_token",
+    "clear_core_token",
+    "get_core_token_record",
+    "is_core_token_valid",
+]
