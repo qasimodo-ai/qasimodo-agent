@@ -16,16 +16,17 @@ DEFAULT_AGENT_KEY = "__default__"
 class AgentState:
     agents: dict[str, str]
     version: str | None = None
+    core_tokens: dict[str, dict[str, str]] | None = None
 
 
 def _load_state() -> AgentState:
     if not STATE_FILE.exists():
-        return AgentState(agents={}, version=None)
+        return AgentState(agents={}, version=None, core_tokens={})
     try:
         with STATE_FILE.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
     except Exception:  # noqa: BLE001
-        return AgentState(agents={}, version=None)
+        return AgentState(agents={}, version=None, core_tokens={})
     if isinstance(data, dict):
         if "agents" in data or "version" in data:
             raw_agents = data.get("agents", {})
@@ -33,9 +34,10 @@ def _load_state() -> AgentState:
             version = data.get("version")
             if version is not None:
                 version = str(version)
-            return AgentState(agents=agents, version=version)
-        return AgentState(agents=_normalize_agents(data), version=None)
-    return AgentState(agents={}, version=None)
+            core_tokens = data.get("core_tokens") or {}
+            return AgentState(agents=agents, version=version, core_tokens=core_tokens)
+        return AgentState(agents=_normalize_agents(data), version=None, core_tokens={})
+    return AgentState(agents={}, version=None, core_tokens={})
 
 
 def _normalize_agents(value: object) -> dict[str, str]:
@@ -49,7 +51,7 @@ def _normalize_agents(value: object) -> dict[str, str]:
 
 def _save_state(state: AgentState) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"agents": state.agents, "version": state.version}
+    payload = {"agents": state.agents, "version": state.version, "core_tokens": state.core_tokens or {}}
     with STATE_FILE.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
@@ -109,6 +111,32 @@ def remember_project_agent(project_id: str | None, agent_id: str) -> None:
     if DEFAULT_AGENT_KEY not in state.agents:
         state.agents[DEFAULT_AGENT_KEY] = agent_id
     _save_state(state)
+
+
+def get_core_token(agent_id: str) -> str | None:
+    state = _load_state()
+    tokens = state.core_tokens or {}
+    record = tokens.get(agent_id)
+    if not record:
+        return None
+    return record.get("token")
+
+
+def save_core_token(agent_id: str, token: str, expires_at: str | None = None) -> None:
+    state = _load_state()
+    if state.core_tokens is None:
+        state.core_tokens = {}
+    state.core_tokens[agent_id] = {"token": token, "expires_at": expires_at or ""}
+    _save_state(state)
+
+
+def clear_core_token(agent_id: str) -> None:
+    state = _load_state()
+    tokens = state.core_tokens or {}
+    if agent_id in tokens:
+        tokens.pop(agent_id, None)
+        state.core_tokens = tokens
+        _save_state(state)
 
 
 __all__ = ["get_agent_version", "get_or_create_agent_id", "remember_project_agent"]
