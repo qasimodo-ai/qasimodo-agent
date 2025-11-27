@@ -18,6 +18,7 @@ from google.protobuf.message import DecodeError
 from nats.errors import DrainTimeoutError
 
 from qasimodo_agent.config import AgentConfig, LLMConfig
+from qasimodo_agent.browser import find_cached_chromium, ensure_chromium_installed, find_bundled_chromium
 from qasimodo_agent.proto import (
     AgentHeartbeat,
     AgentMetadata,
@@ -32,10 +33,9 @@ LOGGER = logging.getLogger("qasimodo.agent.runtime")
 
 
 class AgentRuntime:
-    def __init__(self, config: AgentConfig, llm_config: LLMConfig, chromium_path: str) -> None:
+    def __init__(self, config: AgentConfig, llm_config: LLMConfig) -> None:
         self.config = config
         self.llm_config = llm_config
-        self.chromium_path = chromium_path
         self._nc: nats.NATS | None = None
         self._js = None
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -189,10 +189,14 @@ class AgentRuntime:
         llm = ChatOpenAI(
             model=self.llm_config.model, api_key=self.llm_config.api_key, base_url=self.llm_config.base_url
         )
+        ensure_chromium_installed()
+        chromium_path = find_bundled_chromium() or find_cached_chromium()
+        if not chromium_path:
+            raise RuntimeError("Chromium executable not found. Run `playwright install chromium`.")
         browser = Browser(
             headless=self.config.browser_headless,
             chromium_sandbox=self.config.chromium_sandbox,
-            executable_path=self.chromium_path,
+            executable_path=chromium_path,
         )
         agent = BrowserUseAgent(llm=llm, task=instructions, browser=browser)
 
