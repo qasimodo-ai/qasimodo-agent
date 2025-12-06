@@ -4317,6 +4317,7 @@ dependencies = [
     { name = "playwright" },
     { name = "protobuf" },
     { name = "pyinstaller" },
+    { name = "qasimodo-specs" },
     { name = "rich" },
 ]
 
@@ -4332,11 +4333,24 @@ requires-dist = [
     { name = "playwright", specifier = ">=1.49.0" },
     { name = "protobuf", specifier = ">=5.28.0" },
     { name = "pyinstaller", specifier = ">=6.16.0" },
+    { name = "qasimodo-specs", specifier = "==0.0.8" },
     { name = "rich", specifier = ">=13.9.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [{ name = "python-lsp-server", specifier = ">=1.13.1" }]
+
+[[package]]
+name = "qasimodo-specs"
+version = "0.0.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/19/8e/e40512fce74dba27d3e818478c5cae34b4cd4f978e669e229c4a66bd4dfa/qasimodo_specs-0.0.8.tar.gz", hash = "sha256:36b7875f7c74afd112c18ae1e4fdd63e5939091b85846c4ca0e7d13d6b825066", size = 2862, upload-time = "2025-12-06T22:43:41.208Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/9d/31790482223441341ee896b36d6bc9fe047219ccf18edde5f1ca3d9aad0c/qasimodo_specs-0.0.8-py3-none-any.whl", hash = "sha256:c80666a4e08cb5c436849f2367ab8d43e4564ef5ca34150cd1c218d1cab236f1", size = 3500, upload-time = "2025-12-06T22:43:39.558Z" },
+]
 
 [[package]]
 name = "referencing"
