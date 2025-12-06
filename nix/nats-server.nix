@@ -1,6 +1,8 @@
 {
 
-  perSystem = {pkgs, ...}: {
-    make-shells.default.packages = [ pkgs.nats-server ];
-  };
+  perSystem =
+    { pkgs, ... }:
+    {
+      make-shells.default.packages = [ pkgs.nats-server ];
+    };
 }

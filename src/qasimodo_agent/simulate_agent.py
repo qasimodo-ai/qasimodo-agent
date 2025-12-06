@@ -21,7 +21,7 @@ async def main():
     # Setup stream
     try:
         await js.stream_info("AGENTS")
-    except:
+    except Exception:
         await js.add_stream(name="AGENTS", subjects=["agents.>"])
 
     # Subscribe to tasks
@@ -31,11 +31,13 @@ async def main():
     print(f"Listening on: {task_subject}")
     print(f"Publishing to: {result_subject}\n")
 
-    print(dedent(f'''
+    print(
+        dedent(f"""
         Run the following commands:
         nats sub agents.{agent_id}.results
         nats pub agents.{agent_id}.tasks "test task"
-    '''))
+    """)
+    )
 
     psub = await js.pull_subscribe(task_subject, durable=f"agent-{agent_id}")
 
