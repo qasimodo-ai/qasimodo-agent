@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import signal
 import sys
-import termios
-import tty
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
-import contextlib
+
+# Unix-only modules for terminal control
+try:
+    import termios
+    import tty
+except ImportError:
+    termios = None  # type: ignore
+    tty = None  # type: ignore
 
 import nats
 from rich.console import Console
