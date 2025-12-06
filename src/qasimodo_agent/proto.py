@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from qasimodo_agent.protos import agent_pb2 as _agent_pb2
+from qasimodo_specs.proto import agent_pb2 as _agent_pb2
 
 AgentMetadata = _agent_pb2.AgentMetadata
 AgentTask = _agent_pb2.AgentTask
