@@ -67,28 +67,28 @@ jobs:
           dist/qasimodo-agent-linux/qasimodo-agent --health
       - name: Upload Windows installer
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-setup.exe
           if-no-files-found: error
       - name: Upload macOS ARM64 app
         if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-macos-arm64.zip
           if-no-files-found: error
       - name: Upload macOS x86_64 app
         if: matrix.os == 'macos-15-intel'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-macos-x86_64.zip
           if-no-files-found: error
       - name: Upload Linux package
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact_name }}-${{ steps.commit.outputs.short_sha }}
           path: dist/qasimodo-agent-linux.tar.gz
