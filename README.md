@@ -26,6 +26,10 @@ docker run ghcr.io/qasimodo-ai/qasimodo-agent:latest
 
 TODO
 
+## Agent state
+
+The agent persists local state in `~/.qasimodo-agent/agents.json`. This file keeps a stable agent ID per project alongside metadata (such as the binary version pulled from `pyproject.toml`) and will accumulate additional fields over time.
+
 ## Development
 
 We recommend using [Nix](https://nixos.org) with [direnv](https://direnv.net) for development. Once installed, the dev shell will automatically load with all required tools.
@@ -40,9 +44,21 @@ Build the project:
 uv build
 ```
 
-Run the agent:
+Run the agent (Rich TUI by default):
 ```bash
+QASIMODO_AGENT_LLM_API_KEY=<your_key> \
+CHROMIUM_PATH=<path_to_chromium> \
+QASIMODO_NATS_URL=nats://nats.qasimodo.com:4222 \
 uv run qasimodo-agent
+```
+The TUI shows agent metadata (status, version, last heartbeat) and a live log feed. Use Ctrl+C to stop.
+
+Run the agent headless (no TUI):
+```bash
+QASIMODO_AGENT_LLM_API_KEY=<your_key> \
+CHROMIUM_PATH=<path_to_chromium> \
+QASIMODO_NATS_URL=nats://nats.qasimodo.com:4222 \
+uv run qasimodo-agent-headless
 ```
 
 ### Reproducible builds with Nix
