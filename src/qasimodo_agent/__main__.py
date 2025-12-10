@@ -383,7 +383,7 @@ async def run_tui(
 
     original_term_settings = None
     try:
-        if sys.stdin.isatty():
+        if sys.stdin.isatty() and termios is not None and tty is not None:
             original_term_settings = termios.tcgetattr(sys.stdin.fileno())
             tty.setcbreak(sys.stdin.fileno())
         loop.add_reader(sys.stdin, on_keypress)
