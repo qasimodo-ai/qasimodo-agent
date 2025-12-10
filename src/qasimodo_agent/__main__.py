@@ -30,6 +30,7 @@ from qasimodo_agent.browser import ensure_chromium_installed
 from qasimodo_agent.config import AgentConfig, LLMConfig
 from qasimodo_agent.proto import AgentHeartbeat, AgentResult, AgentResultKind
 from qasimodo_agent.runtime import AgentRuntime
+from qasimodo_agent.state import clear_core_token, get_core_token, is_core_token_valid, save_core_token
 
 LOGGER = logging.getLogger("qasimodo.agent")
 console = Console()
