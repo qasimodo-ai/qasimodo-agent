@@ -9,7 +9,7 @@
     }:
     let
       pyproject = lib.importTOML ../pyproject.toml;
-      python = pkgs.python313;
+      python = pkgs.python314;
 
       workspaceRoot = lib.fileset.toSource {
         root = ../.;
