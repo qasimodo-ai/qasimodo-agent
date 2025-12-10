@@ -51,7 +51,7 @@ jobs:
           fi
       - name: Download artifacts from build workflow
         if: steps.check_version.outputs.version_changed == 'true' && steps.check_tag.outputs.exists == 'false'
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v11
         with:
           workflow: build.yml
           commit: ${{ github.event.workflow_run.head_sha || github.sha }}
