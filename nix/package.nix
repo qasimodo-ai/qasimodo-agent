@@ -9,7 +9,7 @@
     }:
     let
       pyproject = lib.importTOML ../pyproject.toml;
-      python = pkgs.python313;
+      python = pkgs.python314;
 
       workspaceRoot = lib.fileset.toSource {
         root = ../.;
@@ -30,6 +30,9 @@
           overlay
           (final: prev: {
             nats-py = prev.nats-py.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
+            });
+            aiohttp = prev.aiohttp.overrideAttrs (old: {
               nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
             });
           })
