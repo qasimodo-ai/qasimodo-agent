@@ -32,6 +32,9 @@
             nats-py = prev.nats-py.overrideAttrs (old: {
               nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
             });
+            aiohttp = prev.aiohttp.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
+            });
           })
         ]
       );
