@@ -366,11 +366,22 @@ async def drain_events(controller: AgentController, state: AgentState) -> None:
 
 
 async def run_tui(
-    state: AgentState, controller: AgentController, llm_config: LLMConfig, agent_config: AgentConfig
+    state: AgentState,
+    controller: AgentController,
+    llm_config: LLMConfig,
+    agent_config: AgentConfig,
+    shutdown_event: asyncio.Event,
 ) -> None:
     console.print(f"Starting agent {state.agent_id} on {state.nats_url}")
     await controller.ensure_control_listener(agent_id=state.agent_id, nats_url=state.nats_url)
     quit_event = asyncio.Event()
+    cancel_event = asyncio.Event()
+
+    async def _watch_shutdown() -> None:
+        await shutdown_event.wait()
+        cancel_event.set()
+
+    asyncio.create_task(_watch_shutdown())
     loop = asyncio.get_running_loop()
 
     def on_keypress() -> None:
@@ -380,6 +391,7 @@ async def run_tui(
             return
         if ch and ch.lower() == "q":
             quit_event.set()
+            cancel_event.set()
 
     original_term_settings = None
     try:
@@ -391,7 +403,7 @@ async def run_tui(
         pass
 
     with Live(render_tui(state), refresh_per_second=4, console=console, screen=True) as live:
-        while not quit_event.is_set():
+        while not quit_event.is_set() and not shutdown_event.is_set():
             await drain_events(controller, state)
             live.update(render_tui(state))
             # Re-auth if needed
@@ -404,7 +416,7 @@ async def run_tui(
                 live.update(render_tui(state))
                 await controller.stop()
                 token_result = await _wait_for_core_token(
-                    controller, state.agent_id, state.nats_url, state, cancel_event=quit_event
+                    controller, state.agent_id, state.nats_url, state, cancel_event=cancel_event
                 )
                 if token_result is None:
                     break
@@ -440,12 +452,16 @@ async def run_tui(
 
 
 async def run_headless(
-    state: AgentState, controller: AgentController, llm_config: LLMConfig, agent_config: AgentConfig
+    state: AgentState,
+    controller: AgentController,
+    llm_config: LLMConfig,
+    agent_config: AgentConfig,
+    shutdown_event: asyncio.Event,
 ) -> None:
     console.print(f"Starting agent {state.agent_id} on {state.nats_url}")
     await controller.ensure_control_listener(agent_id=state.agent_id, nats_url=state.nats_url)
 
-    while True:
+    while not shutdown_event.is_set():
         await drain_events(controller, state)
         token = _get_valid_cached_token(state.agent_id)
         if not token:
@@ -454,7 +470,7 @@ async def run_headless(
             state.status = "disconnected"
             state.last_heartbeat = None
             await controller.stop()
-            await _wait_for_core_token(controller, state.agent_id, state.nats_url, state)
+            await _wait_for_core_token(controller, state.agent_id, state.nats_url, state, cancel_event=shutdown_event)
             continue
         state.authenticated = True
         if controller.runtime_task is None or controller.runtime_task.done():
@@ -526,9 +542,12 @@ async def _async_main(config: AgentConfig, mode: str, llm_config: LLMConfig, for
         version=config.version,
     )
     controller = AgentController()
+    shutdown_event = asyncio.Event()
 
     def _handle_shutdown() -> None:
         LOGGER.info("Shutdown signal received")
+        if not shutdown_event.is_set():
+            shutdown_event.set()
         if controller.stop_event and not controller.stop_event.is_set():
             controller.stop_event.set()
 
@@ -544,9 +563,9 @@ async def _async_main(config: AgentConfig, mode: str, llm_config: LLMConfig, for
     ensure_chromium_installed()
 
     if mode == "tui":
-        await run_tui(state, controller, llm_config, config)
+        await run_tui(state, controller, llm_config, config, shutdown_event=shutdown_event)
     else:
-        await run_headless(state, controller, llm_config, config)
+        await run_headless(state, controller, llm_config, config, shutdown_event=shutdown_event)
 
 
 def cli() -> None:
