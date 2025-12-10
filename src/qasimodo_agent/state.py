@@ -164,9 +164,11 @@ def is_core_token_valid(agent_id: str, now: datetime | None = None) -> bool:
         return True
     try:
         expiry_dt = datetime.fromisoformat(expires_at)
-    except Exception:  # noqa: BLE001
+    except (TypeError, ValueError):
         clear_core_token(agent_id)
         return False
+    if expiry_dt.tzinfo is None:
+        expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
     now = now or datetime.now(timezone.utc)
     if now < expiry_dt:
         return True
