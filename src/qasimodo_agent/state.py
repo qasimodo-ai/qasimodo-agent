@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -53,8 +55,11 @@ def _normalize_agents(value: object) -> dict[str, str]:
 def _save_state(state: AgentState) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"agents": state.agents, "version": state.version, "core_tokens": state.core_tokens or {}}
-    with STATE_FILE.open("w", encoding="utf-8") as handle:
+    fd = os.open(STATE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
+    with contextlib.suppress(OSError):
+        os.chmod(STATE_FILE, 0o600)
 
 
 def _read_pyproject_version() -> str:
