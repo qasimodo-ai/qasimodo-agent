@@ -68,6 +68,7 @@ class AgentState:
     last_heartbeat: datetime | None = None
     logs: list[str] = field(default_factory=list)
     auth_url: str | None = None
+    authenticated: bool = False
 
 
 def _core_base_url() -> str:
@@ -187,13 +188,13 @@ class AgentController:
 
     async def start_runtime(self, *, agent_config: AgentConfig, llm_config: LLMConfig) -> None:
         await self.stop()
-        config = agent_config
         ensure_chromium_installed()
+        config = agent_config
+        await self._start_monitor(nats_url=config.nats_url, agent_id=config.agent_id)
+        await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent started"}))
         runtime = AgentRuntime(config=config, llm_config=llm_config)
         self.stop_event = asyncio.Event()
         self.runtime_task = asyncio.create_task(runtime.start(self.stop_event))
-        await self._start_monitor(nats_url=config.nats_url, agent_id=config.agent_id)
-        await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent started"}))
 
     async def _start_monitor(self, *, nats_url: str, agent_id: str) -> None:
         if self.monitor_task:
@@ -251,6 +252,7 @@ class AgentController:
         self.monitor_task = asyncio.create_task(_monitor())
 
     async def stop(self) -> None:
+        had_runtime = any([self.stop_event, self.runtime_task, self.monitor_task, self.monitor_nc])
         if self.stop_event and not self.stop_event.is_set():
             self.stop_event.set()
         if self.runtime_task:
@@ -273,13 +275,13 @@ class AgentController:
         self.stop_event = None
         self.monitor_task = None
         self.monitor_nc = None
-        await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent stopped"}))
-        await self.event_queue.put(
-            AgentEvent(
-                kind="heartbeat",
-                payload={"timestamp": datetime.now(timezone.utc).timestamp(), "status": "offline"},
+        if had_runtime:
+            await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent stopped"}))
+            await self.event_queue.put(
+                AgentEvent(
+                    kind="status", payload={"status": "offline", "timestamp": datetime.now(timezone.utc).timestamp()}
+                )
             )
-        )
 
     async def shutdown(self) -> None:
         await self.stop()
@@ -338,11 +340,24 @@ async def drain_events(controller: AgentController, state: AgentState) -> None:
         if event.kind == "log":
             state.logs.append(f"{datetime.now(timezone.utc).isoformat()} {event.payload.get('message', '')}")
         elif event.kind == "heartbeat":
+            if not state.authenticated:
+                continue
             ts = datetime.fromtimestamp(event.payload["timestamp"], tz=timezone.utc)
             state.last_heartbeat = ts
             state.version = event.payload.get("version", state.version)
             state.status = event.payload.get("status", state.status)
             state.logs.append(f"{ts.isoformat()} heartbeat v{state.version}")
+        elif event.kind == "status":
+            status = event.payload.get("status", "offline")
+            ts_raw = event.payload.get("timestamp")
+            ts = (
+                datetime.fromtimestamp(ts_raw, tz=timezone.utc).isoformat()
+                if ts_raw
+                else datetime.now(timezone.utc).isoformat()
+            )
+            state.status = status
+            state.last_heartbeat = None
+            state.logs.append(f"{ts} agent status: {status}")
         elif event.kind == "result":
             run_id = event.payload.get("run_id") or "unknown"
             state.logs.append(
@@ -382,6 +397,7 @@ async def run_tui(
             # Re-auth if needed
             token = _get_valid_cached_token(state.agent_id)
             if not token:
+                state.authenticated = False
                 _record_auth_prompt(state)
                 state.status = "offline"
                 state.last_heartbeat = None
@@ -393,6 +409,7 @@ async def run_tui(
                 if token_result is None:
                     break
                 continue
+            state.authenticated = True
             if controller.runtime_task is None or controller.runtime_task.done():
                 await controller.start_runtime(agent_config=agent_config, llm_config=llm_config)
 
@@ -400,6 +417,7 @@ async def run_tui(
                 await controller.stop()
                 controller.logout_event.clear()
                 clear_core_token(state.agent_id)
+                state.authenticated = False
                 state.status = "offline"
                 state.last_heartbeat = None
                 state.logs.append(f"{datetime.now(timezone.utc).isoformat()} Agent set offline after logout")
@@ -431,23 +449,26 @@ async def run_headless(
         await drain_events(controller, state)
         token = _get_valid_cached_token(state.agent_id)
         if not token:
+            state.authenticated = False
             _record_auth_prompt(state)
             state.status = "disconnected"
             state.last_heartbeat = None
             await controller.stop()
             await _wait_for_core_token(controller, state.agent_id, state.nats_url, state)
             continue
+        state.authenticated = True
         if controller.runtime_task is None or controller.runtime_task.done():
             await controller.start_runtime(agent_config=agent_config, llm_config=llm_config)
-            if controller.logout_event.is_set():
-                await controller.stop()
-                controller.logout_event.clear()
-                clear_core_token(state.agent_id)
-                state.status = "disconnected"
-                state.last_heartbeat = None
-                state.logs.append(f"{datetime.now(timezone.utc).isoformat()} Agent set offline after logout")
-                _record_auth_prompt(state)
-                continue
+        if controller.logout_event.is_set():
+            await controller.stop()
+            controller.logout_event.clear()
+            clear_core_token(state.agent_id)
+            state.authenticated = False
+            state.status = "disconnected"
+            state.last_heartbeat = None
+            state.logs.append(f"{datetime.now(timezone.utc).isoformat()} Agent set offline after logout")
+            _record_auth_prompt(state)
+            continue
         await asyncio.sleep(0.25)
 
 
