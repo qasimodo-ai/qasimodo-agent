@@ -338,8 +338,6 @@ async def drain_events(controller: AgentController, state: AgentState) -> None:
         if event.kind == "log":
             state.logs.append(f"{datetime.now(timezone.utc).isoformat()} {event.payload.get('message', '')}")
         elif event.kind == "heartbeat":
-            if state.version is None or state.version == "":
-                continue
             ts = datetime.fromtimestamp(event.payload["timestamp"], tz=timezone.utc)
             state.last_heartbeat = ts
             state.version = event.payload.get("version", state.version)
@@ -504,6 +502,7 @@ async def _async_main(config: AgentConfig, mode: str, llm_config: LLMConfig, for
     state = AgentState(
         nats_url=nats_url,
         agent_id=agent_id,
+        version=config.version,
     )
     controller = AgentController()
 
