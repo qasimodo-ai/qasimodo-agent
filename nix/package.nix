@@ -28,6 +28,11 @@
         lib.composeManyExtensions [
           inputs.pyproject-build-systems.overlays.default
           overlay
+          (final: prev: {
+            nats-py = prev.nats-py.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
+            });
+          })
         ]
       );
 

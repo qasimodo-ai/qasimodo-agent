@@ -87,6 +87,21 @@
         "type": "github"
       }
     },
+    "process-compose-flake": {
+      "locked": {
+        "lastModified": 1762432010,
+        "narHash": "sha256-+aBOw+lJwkjx1R/vfpCfkYgbIpAz49YgoVnPIe9LdN0=",
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake",
+        "rev": "08a332df554e7876260b72c3e820dd27777d84af",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake",
+        "type": "github"
+      }
+    },
     "pyproject-build-systems": {
       "inputs": {
         "nixpkgs": [
@@ -139,6 +154,7 @@
         "git-hooks": "git-hooks",
         "make-shell": "make-shell",
         "nixpkgs": "nixpkgs",
+        "process-compose-flake": "process-compose-flake",
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
         "treefmt-nix": "treefmt-nix",
