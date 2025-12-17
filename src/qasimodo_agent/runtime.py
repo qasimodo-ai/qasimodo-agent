@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import mimetypes
+import os
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from google.protobuf.message import DecodeError
 from nats.errors import DrainTimeoutError
 
 from qasimodo_agent.config import AgentConfig, LLMConfig
+from qasimodo_agent.core_client import CoreClient, CoreClientError, CoreUnauthorizedError
 from qasimodo_agent.browser import find_cached_chromium, ensure_chromium_installed, find_bundled_chromium
 from qasimodo_agent.proto import (
     AgentHeartbeat,
@@ -27,7 +29,7 @@ from qasimodo_agent.proto import (
     AgentStepResult,
     AgentTask,
 )
-from qasimodo_agent.state import remember_project_agent
+from qasimodo_agent.state import get_core_token, is_core_token_valid, remember_project_agent
 
 LOGGER = logging.getLogger("qasimodo.agent.runtime")
 
@@ -108,8 +110,21 @@ class AgentRuntime:
         error_message = ""
         history: dict[str, Any] | None = None
         try:
-            history = await self._run_browser_use(task, started_at)
-            status = "STATUS_PASSED"
+            instructions = task.instructions or "Run testbook"
+            try:
+                core_client = self._build_core_client(task)
+                testbook_payload, _ = await self._fetch_run_resources(core_client, task)
+                instructions = self._compose_instructions(task, testbook_payload)
+            except CoreUnauthorizedError as exc:
+                error_message = str(exc)
+                LOGGER.error("Agent token rejected while fetching resources for run %s", run_id or "unknown")
+            except CoreClientError as exc:
+                error_message = str(exc)
+                LOGGER.error("Failed to fetch run resources for %s: %s", run_id or "unknown", exc)
+
+            if not error_message:
+                history = await self._run_browser_use(task, instructions, started_at)
+                status = "STATUS_PASSED"
         except Exception as exc:  # noqa: BLE001
             error_message = str(exc)
             LOGGER.exception("Browser execution failed for run %s", run_id or "unknown")
@@ -167,6 +182,53 @@ class AgentRuntime:
             agent_version=self.config.version,
         )
 
+    def _resolve_core_base_url(self, task: AgentTask) -> str:
+        task_url = getattr(task, "core_base_url", "") or ""
+        if task_url:
+            return task_url.rstrip("/")
+        env_value = os.environ.get("QASIMODO_CORE_BASE_URL") or "http://localhost:8000"
+        return env_value.rstrip("/")
+
+    def _resolve_agent_token(self) -> str:
+        if not is_core_token_valid(self.config.agent_id):
+            raise CoreUnauthorizedError("Agent token missing or expired")
+        token = get_core_token(self.config.agent_id)
+        if not token:
+            raise CoreUnauthorizedError("Agent token missing or expired")
+        return token
+
+    def _build_core_client(self, task: AgentTask) -> CoreClient:
+        base_url = self._resolve_core_base_url(task)
+        token = self._resolve_agent_token()
+        return CoreClient(base_url=base_url, token=token)
+
+    async def _fetch_run_resources(
+        self, client: CoreClient, task: AgentTask
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        metadata = task.metadata
+        project_id = (metadata.project_id or "").strip()
+        if not project_id:
+            return None, None
+        testbook = None
+        environment = None
+        if task.testbook_id:
+            testbook = await client.get_testbook(project_id, task.testbook_id)
+        if task.environment_id:
+            environment = await client.get_environment(project_id, task.environment_id)
+        return testbook, environment
+
+    def _compose_instructions(self, task: AgentTask, testbook: dict[str, Any] | None) -> str:
+        if testbook:
+            tasks = testbook.get("tasks") or []
+            version = str(testbook.get("version") or "").strip()
+            if tasks:
+                bullet_points = "\n".join(f"- {step}" for step in tasks)
+                prefix = f"Execute testbook version {version}" if version else "Execute testbook"
+                return f"{prefix} with the following steps:\n{bullet_points}"
+            if version:
+                return f"Execute testbook version {version}."
+        return task.instructions or "Run testbook"
+
     async def _heartbeat_loop(self, stop_event: asyncio.Event) -> None:
         assert self._nc is not None
         while not stop_event.is_set():
@@ -184,8 +246,7 @@ class AgentRuntime:
             await self._nc.publish(self.config.heartbeat_subject, heartbeat.SerializeToString())
             await asyncio.sleep(self.config.heartbeat_interval)
 
-    async def _run_browser_use(self, task: AgentTask, started_at: datetime) -> dict[str, Any]:
-        instructions = task.instructions or "Run testbook"
+    async def _run_browser_use(self, task: AgentTask, instructions: str, started_at: datetime) -> dict[str, Any]:
         llm = ChatOpenAI(
             model=self.llm_config.model, api_key=self.llm_config.api_key, base_url=self.llm_config.base_url
         )
