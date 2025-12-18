@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import io
 import json
 import logging
 import math
@@ -13,10 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import nats
+from nats import errors as nats_errors
 from browser_use import Agent as BrowserUseAgent
 from browser_use import Browser, ChatOpenAI
 from google.protobuf.message import DecodeError
 from nats.errors import DrainTimeoutError
+from PIL import Image
 
 from qasimodo_agent.config import AgentConfig, LLMConfig
 from qasimodo_agent.core_client import CoreClient, CoreClientError, CoreUnauthorizedError
@@ -113,8 +117,8 @@ class AgentRuntime:
             instructions = task.instructions or "Run testbook"
             try:
                 core_client = self._build_core_client(task)
-                testbook_payload, _ = await self._fetch_run_resources(core_client, task)
-                instructions = self._compose_instructions(task, testbook_payload)
+                testbook_payload, environment_payload = await self._fetch_run_resources(core_client, task)
+                instructions = self._compose_instructions(task, testbook_payload, environment_payload)
             except CoreUnauthorizedError as exc:
                 error_message = str(exc)
                 LOGGER.error("Agent token rejected while fetching resources for run %s", run_id or "unknown")
@@ -171,7 +175,45 @@ class AgentRuntime:
         )
         if step:
             result.step.CopyFrom(step)
-        await self._js.publish(self.config.result_subject, result.SerializeToString())
+        max_bytes = 800_000
+        result = self._shrink_result_payload(result, max_bytes)
+        payload = result.SerializeToString()
+        LOGGER.info(
+            "Publishing result kind=%s status=%s size=%sB history_len=%s partial_len=%s step=%s",
+            result.kind,
+            result.status,
+            len(payload),
+            len(result.history_json or ""),
+            len(result.partial_history_json or ""),
+            bool(result.step and result.kind == AgentResultKind.AGENT_RESULT_KIND_STEP),
+        )
+        if LOGGER.isEnabledFor(logging.DEBUG):
+            try:
+                parsed_history = json.loads(result.history_json or "{}") if result.history_json else {}
+            except Exception:
+                parsed_history = "<unparseable>"
+            try:
+                parsed_partial = json.loads(result.partial_history_json or "{}") if result.partial_history_json else {}
+            except Exception:
+                parsed_partial = "<unparseable>"
+            LOGGER.debug(
+                "Result payload detail: metadata=%s history=%s partial=%s step=%s",
+                result.metadata,
+                parsed_history,
+                parsed_partial,
+                result.step if result.kind == AgentResultKind.AGENT_RESULT_KIND_STEP else None,
+            )
+        try:
+            await self._js.publish(self.config.result_subject, payload)
+        except nats_errors.MaxPayloadError:
+            LOGGER.warning("Payload still above NATS max_payload, sending minimal result")
+            minimal = self._minimal_result(result)
+            try:
+                await self._js.publish(self.config.result_subject, minimal.SerializeToString())
+            except Exception:
+                LOGGER.exception("Failed to publish even minimal result")
+        except Exception:
+            LOGGER.exception("Failed to publish result message")
 
     def _build_result_metadata(self, task: AgentTask) -> AgentMetadata:
         task_metadata = task.metadata
@@ -189,7 +231,10 @@ class AgentRuntime:
         env_value = os.environ.get("QASIMODO_CORE_BASE_URL") or "http://localhost:8000"
         return env_value.rstrip("/")
 
-    def _resolve_agent_token(self) -> str:
+    def _resolve_agent_token(self, task: AgentTask) -> str:
+        task_token = getattr(task, "core_token", "") or ""
+        if task_token:
+            return task_token
         if not is_core_token_valid(self.config.agent_id):
             raise CoreUnauthorizedError("Agent token missing or expired")
         token = get_core_token(self.config.agent_id)
@@ -199,7 +244,7 @@ class AgentRuntime:
 
     def _build_core_client(self, task: AgentTask) -> CoreClient:
         base_url = self._resolve_core_base_url(task)
-        token = self._resolve_agent_token()
+        token = self._resolve_agent_token(task)
         return CoreClient(base_url=base_url, token=token)
 
     async def _fetch_run_resources(
@@ -217,17 +262,38 @@ class AgentRuntime:
             environment = await client.get_environment(project_id, task.environment_id)
         return testbook, environment
 
-    def _compose_instructions(self, task: AgentTask, testbook: dict[str, Any] | None) -> str:
+    def _compose_instructions(
+        self, task: AgentTask, testbook: dict[str, Any] | None, environment: dict[str, Any] | None
+    ) -> str:
+        base_instruction = task.instructions or "Run testbook"
+        if not testbook and not environment:
+            return base_instruction
+
+        parts: list[str] = []
+        if environment:
+            env_name = str(environment.get("name") or "").strip()
+            env_url = str(environment.get("url") or "").strip()
+            if env_name or env_url:
+                details = env_name or "Environment"
+                if env_url:
+                    details = f"{details} ({env_url})" if details else env_url
+                parts.append(f"Target environment: {details}")
+
         if testbook:
             tasks = testbook.get("tasks") or []
             version = str(testbook.get("version") or "").strip()
             if tasks:
-                bullet_points = "\n".join(f"- {step}" for step in tasks)
-                prefix = f"Execute testbook version {version}" if version else "Execute testbook"
-                return f"{prefix} with the following steps:\n{bullet_points}"
-            if version:
-                return f"Execute testbook version {version}."
-        return task.instructions or "Run testbook"
+                if version:
+                    parts.append(f"Execute testbook version {version} with the following steps:")
+                else:
+                    parts.append("Execute the following steps:")
+                parts.extend(f"- {step}" for step in tasks)
+            elif version:
+                parts.append(f"Execute testbook version {version}.")
+
+        if not parts:
+            return base_instruction
+        return "\n".join(parts)
 
     async def _heartbeat_loop(self, stop_event: asyncio.Event) -> None:
         assert self._nc is not None
@@ -275,6 +341,10 @@ class AgentRuntime:
             return
         if step_result is None:
             return
+        # NATS payloads are size-limited; compress screenshots to stay under the limit.
+        max_bytes = 800_000
+        if step_result.screenshot_bytes:
+            step_result.screenshot_bytes = self._compress_screenshot_bytes(step_result.screenshot_bytes, max_bytes)
         await self._publish_result_message(
             task=task,
             status="STATUS_RUNNING",
@@ -296,6 +366,10 @@ class AgentRuntime:
         screenshot_bytes, mime_type = await self._load_screenshot_bytes(
             getattr(last_entry.state, "screenshot_path", None)
         )
+        if screenshot_bytes:
+            screenshot_bytes = self._compress_image_bytes(screenshot_bytes, max_bytes=300_000)
+        if not self.config.send_screenshots:
+            screenshot_bytes = b""
         model_actions_payload: list[Any] = []
         model_output_payload: dict[str, Any] | None = None
         if last_entry.model_output:
@@ -385,7 +459,7 @@ class AgentRuntime:
         if history_obj is None:
             return self._empty_history()
         if isinstance(history_obj, dict):
-            return self._json_safe(history_obj)
+            return self._compress_history_images(self._json_safe(history_obj))
         run_history = self._empty_history()
         with suppress(Exception):
             run_history["urls"] = self._string_list(history_obj.urls())
@@ -441,7 +515,7 @@ class AgentRuntime:
         run_history["action_names"] = self._string_list(run_history.get("action_names"))
         run_history["extracted_content"] = self._string_list(run_history.get("extracted_content"))
         run_history["errors"] = self._nullable_string_list(run_history.get("errors"))
-        return self._json_safe(run_history)
+        return self._compress_history_images(self._json_safe(run_history))
 
     @staticmethod
     def _empty_history() -> dict[str, Any]:
@@ -466,6 +540,8 @@ class AgentRuntime:
         }
 
     def _build_screenshot_list(self, history_obj: Any) -> list[str]:
+        if not self.config.send_screenshots:
+            return []
         try:
             raw_screenshots = history_obj.screenshots(return_none_if_not_screenshot=True)
         except Exception:  # noqa: BLE001
@@ -476,7 +552,8 @@ class AgentRuntime:
             if not raw_value:
                 continue
             mime_type = self._guess_screenshot_mime(entries, idx)
-            screenshots.append(self._to_data_url(str(raw_value), mime_type))
+            compressed = self._compress_data_url(str(raw_value), mime_type, max_bytes=300_000)
+            screenshots.append(compressed)
         return screenshots
 
     def _guess_screenshot_mime(self, entries: Any, index: int) -> str:
@@ -491,12 +568,24 @@ class AgentRuntime:
                 return mime_type
         return "image/png"
 
-    @staticmethod
-    def _to_data_url(raw_value: str, mime_type: str) -> str:
+    def _compress_data_url(self, raw_value: str, mime_type: str, max_bytes: int) -> str:
         data = raw_value.strip()
+        prefix = f"data:{mime_type};base64,"
         if data.startswith("data:"):
+            if data.startswith(prefix):
+                try:
+                    decoded = base64.b64decode(data[len(prefix) :], validate=True)
+                    compressed = self._compress_image_bytes(decoded, max_bytes)
+                    return prefix + base64.b64encode(compressed).decode("ascii")
+                except Exception:  # noqa: BLE001
+                    return data
             return data
-        return f"data:{mime_type};base64,{data}"
+        try:
+            decoded = base64.b64decode(data, validate=True)
+        except Exception:
+            return f"data:{mime_type};base64,{data}"
+        compressed = self._compress_image_bytes(decoded, max_bytes)
+        return f"{prefix}{base64.b64encode(compressed).decode('ascii')}"
 
     def _json_safe(self, value: Any) -> Any:
         if value is None:
@@ -571,6 +660,105 @@ class AgentRuntime:
         if not history:
             return ""
         return json.dumps(history, default=self._json_default)
+
+    def _compress_image_bytes(self, data: bytes, max_bytes: int) -> bytes:
+        if len(data) <= max_bytes:
+            return data
+        try:
+            with Image.open(io.BytesIO(data)) as img:
+                img = img.convert("RGB")
+                target_width = 480
+                if img.width > target_width:
+                    scale = target_width / img.width
+                    new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+                    img = img.resize(new_size)
+                quality = 50
+                best = data
+                for _ in range(8):
+                    buffer = io.BytesIO()
+                    img.save(buffer, format="JPEG", quality=quality, optimize=True)
+                    compressed = buffer.getvalue()
+                    if len(compressed) <= max_bytes:
+                        return compressed
+                    if len(compressed) < len(best):
+                        best = compressed
+                    quality = max(30, quality - 5)
+                return best if len(best) < len(data) else data
+        except Exception:
+            LOGGER.exception("Screenshot compression failed; sending original bytes")
+            return data
+
+    def _compress_history_images(
+        self, history_json: str, max_bytes_per_image: int = 200_000, max_items: int = 5
+    ) -> str:
+        if not history_json:
+            return ""
+        try:
+            data = json.loads(history_json)
+        except Exception:
+            return history_json
+        if isinstance(data, dict) and "screenshots" in data and isinstance(data["screenshots"], list):
+            compressed_list: list[str] = []
+            limited = self._limit_screenshots(data["screenshots"], max_items=max_items)
+            for item in limited:
+                if isinstance(item, str):
+                    mime = "image/png"
+                    if item.startswith("data:"):
+                        parts = item.split(";")
+                        if parts and parts[0].startswith("data:"):
+                            mime = parts[0].split("data:")[-1]
+                    if self.config.send_screenshots:
+                        compressed_list.append(self._compress_data_url(item, mime, max_bytes=max_bytes_per_image))
+                    else:
+                        compressed_list.append("")
+                else:
+                    compressed_list.append(item)
+            data["screenshots"] = compressed_list
+        try:
+            return json.dumps(data, default=self._json_default)
+        except Exception:
+            return history_json
+
+    def _limit_screenshots(self, items: list[str], max_items: int) -> list[str]:
+        if len(items) <= max_items:
+            return items
+        if max_items <= 2:
+            return items[:max_items]
+        head = items[:2]
+        tail = items[-2:]
+        middle_needed = max_items - 4
+        middle = items[2 : 2 + middle_needed]
+        return head + middle + tail
+
+    def _shrink_result_payload(self, result: AgentResult, max_bytes: int) -> AgentResult:
+        updated = AgentResult()
+        updated.CopyFrom(result)
+
+        def current_size(obj: AgentResult) -> int:
+            return len(obj.SerializeToString())
+
+        if updated.kind == AgentResultKind.AGENT_RESULT_KIND_STEP and updated.step.screenshot_bytes:
+            updated.step.screenshot_bytes = self._compress_image_bytes(updated.step.screenshot_bytes, max_bytes=150_000)
+
+        updated.history_json = self._compress_history_images(updated.history_json)
+        updated.partial_history_json = self._compress_history_images(updated.partial_history_json)
+
+        if current_size(updated) > max_bytes:
+            LOGGER.warning("Result payload still above limit after compression (size=%s)", current_size(updated))
+        return updated
+
+    def _minimal_result(self, result: AgentResult) -> AgentResult:
+        minimal = AgentResult()
+        minimal.CopyFrom(result)
+        minimal.history_json = ""
+        minimal.partial_history_json = ""
+        if minimal.kind == AgentResultKind.AGENT_RESULT_KIND_STEP:
+            minimal.step.screenshot_bytes = b""
+            minimal.step.model_actions_json = ""
+            minimal.step.model_outputs_json = ""
+            minimal.step.action_results_json = ""
+            minimal.step.state_json = ""
+        return minimal
 
 
 __all__ = ["AgentRuntime"]

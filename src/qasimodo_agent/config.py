@@ -44,6 +44,7 @@ class AgentConfig:
     chromium_sandbox: bool = True
     max_steps: int = 60
     version: str = "dev"
+    send_screenshots: bool = True
 
     @property
     def task_subject(self) -> str:
@@ -68,10 +69,13 @@ class AgentConfig:
         heartbeat_interval = int(args.heartbeat_interval or os.environ.get("QASIMODO_AGENT_HEARTBEAT_INTERVAL", "30"))
         browser_headless = _env_bool("QASIMODO_AGENT_BROWSER_HEADLESS", True)
         chromium_sandbox = _env_bool("QASIMODO_AGENT_CHROMIUM_SANDBOX", True)
+        send_screenshots = _env_bool("QASIMODO_AGENT_SEND_SCREENSHOTS", True)
         if args.browser_headless:
             browser_headless = args.browser_headless.lower() == "true"
         if args.chromium_sandbox:
             chromium_sandbox = args.chromium_sandbox.lower() == "true"
+        if getattr(args, "send_screenshots", None):
+            send_screenshots = args.send_screenshots.lower() == "true"
         max_steps = int(args.max_steps or os.environ.get("QASIMODO_AGENT_MAX_STEPS", "60"))
         version = get_agent_version()
         return cls(
@@ -82,6 +86,7 @@ class AgentConfig:
             chromium_sandbox=chromium_sandbox,
             max_steps=max_steps,
             version=version,
+            send_screenshots=send_screenshots,
         )
 
 
