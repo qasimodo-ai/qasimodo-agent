@@ -146,6 +146,7 @@ class AgentController:
         self.control_task: asyncio.Task | None = None
         self.logout_event: asyncio.Event = asyncio.Event()
         self.token_future: asyncio.Future[str] | None = None
+        self._log_handler: logging.Handler | None = None
 
     async def ensure_control_listener(self, *, agent_id: str, nats_url: str) -> None:
         if self.control_task:
@@ -191,6 +192,7 @@ class AgentController:
         ensure_chromium_installed()
         config = agent_config
         await self._start_monitor(nats_url=config.nats_url, agent_id=config.agent_id)
+        self._ensure_log_forwarder()
         await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent started"}))
         runtime = AgentRuntime(config=config, llm_config=llm_config)
         self.stop_event = asyncio.Event()
@@ -233,6 +235,9 @@ class AgentController:
                             "index": result.step.step_index,
                             "status": result.step.status,
                             "action": result.step.action_name,
+                            "observation": result.step.observation,
+                            "error": result.step.error,
+                            "url": result.step.url,
                         }
                         if result.kind == AgentResultKind.AGENT_RESULT_KIND_STEP
                         else None,
@@ -296,6 +301,47 @@ class AgentController:
                 await self.control_nc.close()
         self.control_task = None
         self.control_nc = None
+        self._detach_log_forwarder()
+
+    def _ensure_log_forwarder(self) -> None:
+        if self._log_handler:
+            return
+        loop = asyncio.get_running_loop()
+
+        class EventQueueLogHandler(logging.Handler):
+            def __init__(self, queue: asyncio.Queue[AgentEvent], running_loop: asyncio.AbstractEventLoop) -> None:
+                super().__init__(level=logging.INFO)
+                self.queue = queue
+                self.loop = running_loop
+
+            def emit(self, record: logging.LogRecord) -> None:
+                try:
+                    message = self.format(record)
+                    event = AgentEvent(kind="log", payload={"message": message})
+                    self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
+                except Exception:  # noqa: BLE001
+                    self.handleError(record)
+
+        handler = EventQueueLogHandler(self.event_queue, loop)
+        formatter = logging.Formatter("%(levelname)s [%(name)s] %(message)s")
+        handler.setFormatter(formatter)
+        self._log_handler = handler
+
+        targets = ["qasimodo.agent.runtime", "Agent", "BrowserSession", "service"]
+        for name in targets:
+            logger = logging.getLogger(name)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+
+    def _detach_log_forwarder(self) -> None:
+        if not self._log_handler:
+            return
+        targets = ["qasimodo.agent.runtime", "Agent", "BrowserSession", "service"]
+        for name in targets:
+            logger = logging.getLogger(name)
+            with contextlib.suppress(ValueError):
+                logger.removeHandler(self._log_handler)
+        self._log_handler = None
 
 
 def render_tui(state: AgentState) -> Panel:
@@ -360,9 +406,28 @@ async def drain_events(controller: AgentController, state: AgentState) -> None:
             state.logs.append(f"{ts} agent status: {status}")
         elif event.kind == "result":
             run_id = event.payload.get("run_id") or "unknown"
-            state.logs.append(
-                f"{datetime.now(timezone.utc).isoformat()} result {run_id} {event.payload.get('status', '')} {event.payload.get('message', '')}"
-            )
+            step = event.payload.get("step")
+            if step:
+                obs = (step.get("observation") or "").strip()
+                err = (step.get("error") or "").strip()
+                url = (step.get("url") or "").strip()
+                detail_parts = []
+                if obs:
+                    detail_parts.append(f"obs={obs}")
+                if err:
+                    detail_parts.append(f"err={err}")
+                if url:
+                    detail_parts.append(f"url={url}")
+                detail = " | ".join(detail_parts)
+                state.logs.append(
+                    f"{datetime.now(timezone.utc).isoformat()} run {run_id} step {step.get('index')} "
+                    f"{step.get('status', '').lower()} {step.get('action', '')} {detail}".strip()
+                )
+            else:
+                state.logs.append(
+                    f"{datetime.now(timezone.utc).isoformat()} result {run_id} {event.payload.get('status', '')} "
+                    f"{event.payload.get('message', '')}"
+                )
 
 
 async def run_tui(
@@ -505,7 +570,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--heartbeat-interval", type=int, help="Heartbeat interval in seconds")
     parser.add_argument("--health", action="store_true", help="Run health check and exit")
-    parser.add_argument("--log-level", default=os.environ.get("QASIMODO_AGENT_LOG_LEVEL", "INFO"))
+    parser.add_argument("--log-level", default=os.environ.get("QASIMODO_AGENT_LOG_LEVEL", "DEBUG"))
     parser.add_argument("--mode", choices=["tui", "headless"], default="tui")
     parser.add_argument("--llm-api-key", help="LLM API key")
     parser.add_argument("--llm-model", help="LLM model (default google/gemini-2.0-flash-exp)")
@@ -519,6 +584,11 @@ def parse_args() -> argparse.Namespace:
         "--chromium-sandbox",
         choices=["true", "false"],
         help="Enable Chromium sandbox (default true; env QASIMODO_AGENT_CHROMIUM_SANDBOX)",
+    )
+    parser.add_argument(
+        "--send-screenshots",
+        choices=["true", "false"],
+        help="Send screenshots to core (default true; env QASIMODO_AGENT_SEND_SCREENSHOTS)",
     )
     parser.add_argument(
         "--max-steps",

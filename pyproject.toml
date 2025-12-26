@@ -13,6 +13,7 @@ dependencies = [
     "protobuf>=5.28.0",
     "qasimodo-specs==0.0.8",
     "rich>=13.9.0",
+    "pillow>=10.4.0",
 ]
 
 [project.scripts]

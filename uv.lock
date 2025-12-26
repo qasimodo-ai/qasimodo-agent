@@ -4419,6 +4419,7 @@ source = { editable = "." }
 dependencies = [
     { name = "browser-use" },
     { name = "nats-py" },
+    { name = "pillow" },
     { name = "playwright" },
     { name = "protobuf" },
     { name = "pyinstaller" },
@@ -4435,6 +4436,7 @@ dev = [
 requires-dist = [
     { name = "browser-use", specifier = ">=0.8.0" },
     { name = "nats-py", specifier = ">=2.10.0" },
+    { name = "pillow", specifier = ">=10.4.0" },
     { name = "playwright", specifier = ">=1.49.0" },
     { name = "protobuf", specifier = ">=5.28.0" },
     { name = "pyinstaller", specifier = ">=6.16.0" },
