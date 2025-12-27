@@ -23,8 +23,16 @@ from nats.errors import DrainTimeoutError
 from PIL import Image
 
 from qasimodo_agent.config import AgentConfig, LLMConfig
-from qasimodo_agent.core_client import CoreClient, CoreClientError, CoreUnauthorizedError
-from qasimodo_agent.browser import find_cached_chromium, ensure_chromium_installed, find_bundled_chromium
+from qasimodo_agent.core_client import (
+    CoreClient,
+    CoreClientError,
+    CoreUnauthorizedError,
+)
+from qasimodo_agent.browser import (
+    find_cached_chromium,
+    ensure_chromium_installed,
+    find_bundled_chromium,
+)
 from qasimodo_agent.proto import (
     AgentHeartbeat,
     AgentMetadata,
@@ -33,7 +41,11 @@ from qasimodo_agent.proto import (
     AgentStepResult,
     AgentTask,
 )
-from qasimodo_agent.state import get_core_token, is_core_token_valid, remember_project_agent
+from qasimodo_agent.state import (
+    get_core_token,
+    is_core_token_valid,
+    remember_project_agent,
+)
 
 LOGGER = logging.getLogger("qasimodo.agent.runtime")
 
@@ -48,7 +60,7 @@ class AgentRuntime:
 
     async def start(self, stop_event: asyncio.Event) -> None:
         LOGGER.info("Connecting to NATS at %s", self.config.nats_url)
-        self._nc = await nats.connect(self.config.nats_url)
+        self._nc = await asyncio.wait_for(nats.connect(self.config.nats_url), timeout=5.0)
         self._js = self._nc.jetstream()
         await self._ensure_stream()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(stop_event))
@@ -61,17 +73,27 @@ class AgentRuntime:
                     await self._heartbeat_task
             if self._nc:
                 try:
-                    await self._nc.drain()
-                except DrainTimeoutError:
+                    await asyncio.wait_for(self._nc.drain(), timeout=2.0)
+                except (DrainTimeoutError, asyncio.TimeoutError):
                     LOGGER.warning("NATS drain timed out; forcing close")
-                await self._nc.close()
+                except Exception as exc:
+                    LOGGER.warning("NATS drain failed: %s; forcing close", exc)
+                try:
+                    await asyncio.wait_for(self._nc.close(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    LOGGER.warning("NATS close timed out")
+                except Exception as exc:
+                    LOGGER.warning("NATS close failed: %s", exc)
 
     async def _ensure_stream(self) -> None:
         assert self._js is not None
         try:
             await self._js.stream_info(self.config.stream_name)
         except Exception:  # noqa: BLE001
-            await self._js.add_stream(name=self.config.stream_name, subjects=[f"{self.config.subject_prefix}.>"])
+            await self._js.add_stream(
+                name=self.config.stream_name,
+                subjects=[f"{self.config.subject_prefix}.>"],
+            )
 
     async def _consume_tasks(self, stop_event: asyncio.Event) -> None:
         assert self._js is not None
@@ -103,7 +125,11 @@ class AgentRuntime:
         if project_id:
             remember_project_agent(project_id, self.config.agent_id)
         started_at = datetime.now(timezone.utc)
-        LOGGER.info("Executing run %s for project %s", run_id or "unknown", project_id or "unknown")
+        LOGGER.info(
+            "Executing run %s for project %s",
+            run_id or "unknown",
+            project_id or "unknown",
+        )
         await self._publish_result_message(
             task=task,
             status="STATUS_RUNNING",
@@ -121,7 +147,10 @@ class AgentRuntime:
                 instructions = self._compose_instructions(task, testbook_payload, environment_payload)
             except CoreUnauthorizedError as exc:
                 error_message = str(exc)
-                LOGGER.error("Agent token rejected while fetching resources for run %s", run_id or "unknown")
+                LOGGER.error(
+                    "Agent token rejected while fetching resources for run %s",
+                    run_id or "unknown",
+                )
             except CoreClientError as exc:
                 error_message = str(exc)
                 LOGGER.error("Failed to fetch run resources for %s: %s", run_id or "unknown", exc)
@@ -263,7 +292,10 @@ class AgentRuntime:
         return testbook, environment
 
     def _compose_instructions(
-        self, task: AgentTask, testbook: dict[str, Any] | None, environment: dict[str, Any] | None
+        self,
+        task: AgentTask,
+        testbook: dict[str, Any] | None,
+        environment: dict[str, Any] | None,
     ) -> str:
         base_instruction = task.instructions or "Run testbook"
         if not testbook and not environment:
@@ -314,7 +346,9 @@ class AgentRuntime:
 
     async def _run_browser_use(self, task: AgentTask, instructions: str, started_at: datetime) -> dict[str, Any]:
         llm = ChatOpenAI(
-            model=self.llm_config.model, api_key=self.llm_config.api_key, base_url=self.llm_config.base_url
+            model=self.llm_config.model,
+            api_key=self.llm_config.api_key,
+            base_url=self.llm_config.base_url,
         )
         ensure_chromium_installed()
         chromium_path = find_bundled_chromium() or find_cached_chromium()
@@ -337,7 +371,10 @@ class AgentRuntime:
         try:
             step_result, partial_history = await self._prepare_step_payload(agent)
         except Exception:  # noqa: BLE001
-            LOGGER.exception("Failed to prepare step payload for run %s", task.metadata.run_id or "unknown")
+            LOGGER.exception(
+                "Failed to prepare step payload for run %s",
+                task.metadata.run_id or "unknown",
+            )
             return
         if step_result is None:
             return
@@ -670,7 +707,10 @@ class AgentRuntime:
                 target_width = 480
                 if img.width > target_width:
                     scale = target_width / img.width
-                    new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+                    new_size = (
+                        max(1, int(img.width * scale)),
+                        max(1, int(img.height * scale)),
+                    )
                     img = img.resize(new_size)
                 quality = 50
                 best = data
@@ -744,7 +784,10 @@ class AgentRuntime:
         updated.partial_history_json = self._compress_history_images(updated.partial_history_json)
 
         if current_size(updated) > max_bytes:
-            LOGGER.warning("Result payload still above limit after compression (size=%s)", current_size(updated))
+            LOGGER.warning(
+                "Result payload still above limit after compression (size=%s)",
+                current_size(updated),
+            )
         return updated
 
     def _minimal_result(self, result: AgentResult) -> AgentResult:
