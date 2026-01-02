@@ -29,9 +29,10 @@ from qasimodo_agent.core_client import (
     CoreUnauthorizedError,
 )
 from qasimodo_agent.browser import (
+    find_system_chromium,
+    find_bundled_chromium,
     find_cached_chromium,
     ensure_chromium_installed,
-    find_bundled_chromium,
 )
 from qasimodo_agent.proto import (
     AgentHeartbeat,
@@ -41,11 +42,12 @@ from qasimodo_agent.proto import (
     AgentStepResult,
     AgentTask,
 )
+from qasimodo_agent.nkey_manager import get_user_seed
 from qasimodo_agent.state import (
-    get_core_token,
-    is_core_token_valid,
+    get_nats_jwt,
     remember_project_agent,
 )
+import nkeys
 
 LOGGER = logging.getLogger("qasimodo.agent.runtime")
 
@@ -60,7 +62,34 @@ class AgentRuntime:
 
     async def start(self, stop_event: asyncio.Event) -> None:
         LOGGER.info("Connecting to NATS at %s", self.config.nats_url)
-        self._nc = await asyncio.wait_for(nats.connect(self.config.nats_url), timeout=5.0)
+
+        # Try to connect with JWT authentication if available
+        jwt_token = get_nats_jwt()
+        if jwt_token:
+            try:
+                user_seed = get_user_seed()
+                kp = nkeys.from_seed(user_seed.encode())
+
+                def signature_cb(nonce: bytes) -> bytes:
+                    return kp.sign(nonce)
+
+                self._nc = await asyncio.wait_for(
+                    nats.connect(
+                        self.config.nats_url,
+                        user_jwt_cb=lambda: jwt_token,
+                        signature_cb=signature_cb,
+                    ),
+                    timeout=5.0,
+                )
+                LOGGER.info("Connected to NATS with JWT authentication")
+            except Exception as exc:
+                LOGGER.warning("JWT auth failed, falling back to unauthenticated: %s", exc)
+                self._nc = await asyncio.wait_for(nats.connect(self.config.nats_url), timeout=5.0)
+        else:
+            # Fallback to unauthenticated connection (dev mode without JWT auth on NATS)
+            self._nc = await asyncio.wait_for(nats.connect(self.config.nats_url), timeout=5.0)
+            LOGGER.info("Connected to NATS without authentication")
+
         self._js = self._nc.jetstream()
         await self._ensure_stream()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(stop_event))
@@ -261,15 +290,18 @@ class AgentRuntime:
         return env_value.rstrip("/")
 
     def _resolve_agent_token(self, task: AgentTask) -> str:
+        """Resolve agent token for REST API calls.
+
+        Note: With NATS JWT auth, REST API calls may be deprecated.
+        This method is kept for backwards compatibility with task payloads
+        that include core_token.
+        """
         task_token = getattr(task, "core_token", "") or ""
         if task_token:
             return task_token
-        if not is_core_token_valid(self.config.agent_id):
-            raise CoreUnauthorizedError("Agent token missing or expired")
-        token = get_core_token(self.config.agent_id)
-        if not token:
-            raise CoreUnauthorizedError("Agent token missing or expired")
-        return token
+        # With NATS-only auth, we don't have REST API tokens
+        # Return empty string and let the caller handle it gracefully
+        return ""
 
     def _build_core_client(self, task: AgentTask) -> CoreClient:
         base_url = self._resolve_core_base_url(task)
@@ -350,10 +382,16 @@ class AgentRuntime:
             api_key=self.llm_config.api_key,
             base_url=self.llm_config.base_url,
         )
-        ensure_chromium_installed()
-        chromium_path = find_bundled_chromium() or find_cached_chromium()
+        if self.config.chromium_executable:
+            chromium_path = self.config.chromium_executable
+        else:
+            ensure_chromium_installed()
+            chromium_path = find_system_chromium() or find_bundled_chromium() or find_cached_chromium()
         if not chromium_path:
-            raise RuntimeError("Chromium executable not found. Run `playwright install chromium`.")
+            raise RuntimeError(
+                "Chromium executable not found. Set QASIMODO_AGENT_CHROMIUM_EXECUTABLE environment variable "
+                "or use --chromium-executable flag."
+            )
         browser = Browser(
             headless=self.config.browser_headless,
             chromium_sandbox=self.config.chromium_sandbox,
@@ -381,7 +419,7 @@ class AgentRuntime:
         # NATS payloads are size-limited; compress screenshots to stay under the limit.
         max_bytes = 800_000
         if step_result.screenshot_bytes:
-            step_result.screenshot_bytes = self._compress_screenshot_bytes(step_result.screenshot_bytes, max_bytes)
+            step_result.screenshot_bytes = self._compress_image_bytes(step_result.screenshot_bytes, max_bytes)
         await self._publish_result_message(
             task=task,
             status="STATUS_RUNNING",
