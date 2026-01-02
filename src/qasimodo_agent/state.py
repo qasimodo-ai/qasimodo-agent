@@ -19,7 +19,6 @@ DEFAULT_AGENT_KEY = "__default__"
 class AgentState:
     agents: dict[str, str]
     version: str | None = None
-    core_tokens: dict[str, dict[str, str]] | None = None  # Legacy REST tokens (deprecated)
     nats_jwt: str | None = None  # NATS JWT for authentication
     nats_jwt_expires_at: str | None = None  # JWT expiry timestamp
 
@@ -29,7 +28,6 @@ def _load_state() -> AgentState:
         return AgentState(
             agents={},
             version=None,
-            core_tokens={},
             nats_jwt=None,
             nats_jwt_expires_at=None,
         )
@@ -40,7 +38,6 @@ def _load_state() -> AgentState:
         return AgentState(
             agents={},
             version=None,
-            core_tokens={},
             nats_jwt=None,
             nats_jwt_expires_at=None,
         )
@@ -51,24 +48,21 @@ def _load_state() -> AgentState:
             version = data.get("version")
             if version is not None:
                 version = str(version)
-            core_tokens = data.get("core_tokens") or {}
             nats_jwt = data.get("nats_jwt")
             nats_jwt_expires_at = data.get("nats_jwt_expires_at")
             return AgentState(
                 agents=agents,
                 version=version,
-                core_tokens=core_tokens,
                 nats_jwt=nats_jwt,
                 nats_jwt_expires_at=nats_jwt_expires_at,
             )
         return AgentState(
             agents=_normalize_agents(data),
             version=None,
-            core_tokens={},
             nats_jwt=None,
             nats_jwt_expires_at=None,
         )
-    return AgentState(agents={}, version=None, core_tokens={}, nats_jwt=None, nats_jwt_expires_at=None)
+    return AgentState(agents={}, version=None, nats_jwt=None, nats_jwt_expires_at=None)
 
 
 def _normalize_agents(value: object) -> dict[str, str]:
@@ -85,7 +79,6 @@ def _save_state(state: AgentState) -> None:
     payload = {
         "agents": state.agents,
         "version": state.version,
-        "core_tokens": state.core_tokens or {},
         "nats_jwt": state.nats_jwt,
         "nats_jwt_expires_at": state.nats_jwt_expires_at,
     }
@@ -129,15 +122,18 @@ def get_or_create_agent_id(project_id: str | None = None) -> str:
         existing = state.agents.get(project_id)
         if existing:
             return existing
-    default_agent = state.agents.get(DEFAULT_AGENT_KEY)
-    if default_agent:
-        if project_id and state.agents.get(project_id) != default_agent:
-            state.agents[project_id] = default_agent
-            _save_state(state)
-        return default_agent
+        default_agent = state.agents.get(DEFAULT_AGENT_KEY)
+        if default_agent:
+            if project_id and state.agents.get(project_id) != default_agent:
+                state.agents[project_id] = default_agent
+                _save_state(state)
+            return default_agent
     agent_id = str(uuid.uuid4())
     state.agents[project_id or DEFAULT_AGENT_KEY] = agent_id
-    _save_state(state)
+    try:
+        _save_state(state)
+    except Exception as exc:
+        print(f"ERROR: Failed to save agent_id: {exc}")
     return agent_id
 
 
@@ -153,63 +149,6 @@ def remember_project_agent(project_id: str | None, agent_id: str) -> None:
     _save_state(state)
 
 
-def get_core_token(agent_id: str) -> str | None:
-    state = _load_state()
-    tokens = state.core_tokens or {}
-    record = tokens.get(agent_id)
-    if not record:
-        return None
-    return record.get("token")
-
-
-def save_core_token(agent_id: str, token: str, expires_at: str | None = None) -> None:
-    state = _load_state()
-    if state.core_tokens is None:
-        state.core_tokens = {}
-    state.core_tokens[agent_id] = {"token": token, "expires_at": expires_at or ""}
-    _save_state(state)
-
-
-def clear_core_token(agent_id: str) -> None:
-    state = _load_state()
-    tokens = state.core_tokens or {}
-    if agent_id in tokens:
-        tokens.pop(agent_id, None)
-        state.core_tokens = tokens
-        _save_state(state)
-
-
-def get_core_token_record(agent_id: str) -> dict[str, str] | None:
-    state = _load_state()
-    tokens = state.core_tokens or {}
-    return tokens.get(agent_id)
-
-
-def is_core_token_valid(agent_id: str, now: datetime | None = None) -> bool:
-    record = get_core_token_record(agent_id)
-    if not record:
-        return False
-    token = record.get("token")
-    if not token:
-        clear_core_token(agent_id)
-        return False
-    expires_at = record.get("expires_at") or ""
-    if not expires_at:
-        return True
-    try:
-        expiry_dt = datetime.fromisoformat(expires_at)
-    except (TypeError, ValueError):
-        clear_core_token(agent_id)
-        return False
-    if expiry_dt.tzinfo is None:
-        expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
-    now = now or datetime.now(timezone.utc)
-    if now < expiry_dt:
-        return True
-    clear_core_token(agent_id)
-    return False
-
-
 def save_nats_jwt(jwt: str, expires_at: str) -> None:
     """Save NATS JWT for authentication."""
     state = _load_state()
@@ -220,7 +159,7 @@ def save_nats_jwt(jwt: str, expires_at: str) -> None:
 
 def get_nats_jwt() -> str | None:
     """
-    Get the NATS JWT if it exists and is valid.
+    Get NATS JWT if it exists and is valid.
 
     Returns None if JWT doesn't exist or is expired.
     """
@@ -248,7 +187,7 @@ def get_nats_jwt() -> str | None:
 
 
 def clear_nats_jwt() -> None:
-    """Clear the stored NATS JWT."""
+    """Clear stored NATS JWT."""
     state = _load_state()
     state.nats_jwt = None
     state.nats_jwt_expires_at = None
@@ -261,16 +200,11 @@ def is_nats_jwt_valid() -> bool:
 
 
 __all__ = [
-    "clear_core_token",
     "clear_nats_jwt",
     "get_agent_version",
-    "get_core_token",
-    "get_core_token_record",
     "get_nats_jwt",
     "get_or_create_agent_id",
-    "is_core_token_valid",
     "is_nats_jwt_valid",
     "remember_project_agent",
-    "save_core_token",
     "save_nats_jwt",
 ]

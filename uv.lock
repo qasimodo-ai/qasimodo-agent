@@ -4490,7 +4490,7 @@ requires-dist = [
     { name = "protobuf", specifier = ">=5.28.0" },
     { name = "pyinstaller", specifier = ">=6.16.0" },
     { name = "pynacl", specifier = ">=1.6.1" },
-    { name = "qasimodo-specs", specifier = "==0.0.8" },
+    { name = "qasimodo-specs", specifier = "==0.0.9" },
     { name = "rich", specifier = ">=13.9.0" },
 ]
 
@@ -4499,14 +4499,14 @@ dev = [{ name = "python-lsp-server", specifier = ">=1.13.1" }]
 
 [[package]]
 name = "qasimodo-specs"
-version = "0.0.8"
+version = "0.0.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/8e/e40512fce74dba27d3e818478c5cae34b4cd4f978e669e229c4a66bd4dfa/qasimodo_specs-0.0.8.tar.gz", hash = "sha256:36b7875f7c74afd112c18ae1e4fdd63e5939091b85846c4ca0e7d13d6b825066", size = 2862, upload-time = "2025-12-06T22:43:41.208Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/16/62f788d10b9d43b513782814d76b23e6f6f4a2731643d28c4752d6b3725c/qasimodo_specs-0.0.9.tar.gz", hash = "sha256:897e4d197cee461122cfb48d21d259b4e3e0597a4fa0ed32e016f40173411e79", size = 14972, upload-time = "2026-01-02T19:59:20.06Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/9d/31790482223441341ee896b36d6bc9fe047219ccf18edde5f1ca3d9aad0c/qasimodo_specs-0.0.8-py3-none-any.whl", hash = "sha256:c80666a4e08cb5c436849f2367ab8d43e4564ef5ca34150cd1c218d1cab236f1", size = 3500, upload-time = "2025-12-06T22:43:39.558Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/2d/6d7b9ef9df961a75020a9e69068dcb1520108645f487d350ac9e2cab8e49/qasimodo_specs-0.0.9-py3-none-any.whl", hash = "sha256:8c1b7f77b4664bedef4107ad37a19549113013edbb60b1fa983e08f7f33b1cbb", size = 15823, upload-time = "2026-01-02T19:59:19.088Z" },
 ]
 
 [[package]]
