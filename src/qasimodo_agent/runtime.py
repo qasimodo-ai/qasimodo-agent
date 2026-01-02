@@ -8,7 +8,6 @@ import json
 import logging
 import math
 import mimetypes
-import os
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,11 +22,7 @@ from nats.errors import DrainTimeoutError
 from PIL import Image
 
 from qasimodo_agent.config import AgentConfig, LLMConfig
-from qasimodo_agent.core_client import (
-    CoreClient,
-    CoreClientError,
-    CoreUnauthorizedError,
-)
+
 from qasimodo_agent.browser import (
     find_system_chromium,
     find_bundled_chromium,
@@ -45,6 +40,7 @@ from qasimodo_agent.proto import (
 from qasimodo_agent.nkey_manager import get_user_seed
 from qasimodo_agent.state import (
     get_nats_jwt,
+    get_or_create_agent_id,
     remember_project_agent,
 )
 import nkeys
@@ -61,6 +57,12 @@ class AgentRuntime:
         self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def start(self, stop_event: asyncio.Event) -> None:
+        # Ensure we have an agent_id
+        if not self.config.agent_id:
+            self.config.agent_id = get_or_create_agent_id()
+            remember_project_agent(None, self.config.agent_id)
+            LOGGER.info("Generated new agent_id: %s", self.config.agent_id)
+
         LOGGER.info("Connecting to NATS at %s", self.config.nats_url)
 
         # Try to connect with JWT authentication if available
@@ -169,24 +171,10 @@ class AgentRuntime:
         error_message = ""
         history: dict[str, Any] | None = None
         try:
-            instructions = task.instructions or "Run testbook"
-            try:
-                core_client = self._build_core_client(task)
-                testbook_payload, environment_payload = await self._fetch_run_resources(core_client, task)
-                instructions = self._compose_instructions(task, testbook_payload, environment_payload)
-            except CoreUnauthorizedError as exc:
-                error_message = str(exc)
-                LOGGER.error(
-                    "Agent token rejected while fetching resources for run %s",
-                    run_id or "unknown",
-                )
-            except CoreClientError as exc:
-                error_message = str(exc)
-                LOGGER.error("Failed to fetch run resources for %s: %s", run_id or "unknown", exc)
+            instructions = self._compose_instructions_from_proto(task)
 
-            if not error_message:
-                history = await self._run_browser_use(task, instructions, started_at)
-                status = "STATUS_PASSED"
+            history = await self._run_browser_use(task, instructions, started_at)
+            status = "STATUS_PASSED"
         except Exception as exc:  # noqa: BLE001
             error_message = str(exc)
             LOGGER.exception("Browser execution failed for run %s", run_id or "unknown")
@@ -227,8 +215,8 @@ class AgentRuntime:
             started_at=started_at.isoformat(),
             finished_at=finished_at.isoformat() if finished_at else "",
             history_json=self._serialize_history(history) if history else "",
-            testbook_id=task.testbook_id,
-            environment_id=task.environment_id,
+            testbook_id=task.testbook.id if task.HasField("testbook") else "",
+            environment_id=task.environment.id if task.HasField("environment") else "",
             partial_history_json=self._serialize_history(partial_history) if partial_history else "",
         )
         if step:
@@ -282,70 +270,26 @@ class AgentRuntime:
             agent_version=self.config.version,
         )
 
-    def _resolve_core_base_url(self, task: AgentTask) -> str:
-        task_url = getattr(task, "core_base_url", "") or ""
-        if task_url:
-            return task_url.rstrip("/")
-        env_value = os.environ.get("QASIMODO_CORE_BASE_URL") or "http://localhost:8000"
-        return env_value.rstrip("/")
-
-    def _resolve_agent_token(self, task: AgentTask) -> str:
-        """Resolve agent token for REST API calls.
-
-        Note: With NATS JWT auth, REST API calls may be deprecated.
-        This method is kept for backwards compatibility with task payloads
-        that include core_token.
-        """
-        task_token = getattr(task, "core_token", "") or ""
-        if task_token:
-            return task_token
-        # With NATS-only auth, we don't have REST API tokens
-        # Return empty string and let the caller handle it gracefully
-        return ""
-
-    def _build_core_client(self, task: AgentTask) -> CoreClient:
-        base_url = self._resolve_core_base_url(task)
-        token = self._resolve_agent_token(task)
-        return CoreClient(base_url=base_url, token=token)
-
-    async def _fetch_run_resources(
-        self, client: CoreClient, task: AgentTask
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        metadata = task.metadata
-        project_id = (metadata.project_id or "").strip()
-        if not project_id:
-            return None, None
-        testbook = None
-        environment = None
-        if task.testbook_id:
-            testbook = await client.get_testbook(project_id, task.testbook_id)
-        if task.environment_id:
-            environment = await client.get_environment(project_id, task.environment_id)
-        return testbook, environment
-
-    def _compose_instructions(
-        self,
-        task: AgentTask,
-        testbook: dict[str, Any] | None,
-        environment: dict[str, Any] | None,
-    ) -> str:
+    def _compose_instructions_from_proto(self, task: AgentTask) -> str:
+        """Compose instructions from protobuf testbook and environment data."""
         base_instruction = task.instructions or "Run testbook"
-        if not testbook and not environment:
-            return base_instruction
 
         parts: list[str] = []
-        if environment:
-            env_name = str(environment.get("name") or "").strip()
-            env_url = str(environment.get("url") or "").strip()
+
+        # Extract environment details from protobuf
+        if task.HasField("environment") and task.environment.id:
+            env_name = task.environment.name.strip()
+            env_url = task.environment.url.strip()
             if env_name or env_url:
                 details = env_name or "Environment"
                 if env_url:
                     details = f"{details} ({env_url})" if details else env_url
                 parts.append(f"Target environment: {details}")
 
-        if testbook:
-            tasks = testbook.get("tasks") or []
-            version = str(testbook.get("version") or "").strip()
+        # Extract testbook tasks from protobuf
+        if task.HasField("testbook") and task.testbook.id:
+            tasks = list(task.testbook.tasks)
+            version = task.testbook.version.strip()
             if tasks:
                 if version:
                     parts.append(f"Execute testbook version {version} with the following steps:")
