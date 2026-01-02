@@ -24,7 +24,7 @@ class LLMConfig:
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "LLMConfig":
-        model = args.llm_model or os.environ.get("QASIMODO_AGENT_LLM_MODEL", "google/gemini-2.0-flash-exp")
+        model = args.llm_model or os.environ.get("QASIMODO_AGENT_LLM_MODEL", "google/gemini-3-flash-preview")
         base_url = args.llm_base_url or os.environ.get("QASIMODO_AGENT_LLM_BASE_URL", "https://openrouter.ai/api/v1")
         api_key = args.llm_api_key or os.environ.get("QASIMODO_AGENT_LLM_API_KEY")
         if not api_key:
@@ -37,6 +37,7 @@ class AgentConfig:
     agent_id: str
     nats_url: str
     heartbeat_interval: int
+    chromium_executable: str | None = None
     stream_name: str = "AGENTS"
     subject_prefix: str = "agents"
     durable_prefix: str = "agent"
@@ -67,6 +68,7 @@ class AgentConfig:
         agent_id = get_or_create_agent_id()
         nats_url = DEFAULT_NATS_URL
         heartbeat_interval = int(args.heartbeat_interval or os.environ.get("QASIMODO_AGENT_HEARTBEAT_INTERVAL", "30"))
+        chromium_executable = args.chromium_executable or os.environ.get("QASIMODO_AGENT_CHROMIUM_EXECUTABLE")
         browser_headless = _env_bool("QASIMODO_AGENT_BROWSER_HEADLESS", True)
         chromium_sandbox = _env_bool("QASIMODO_AGENT_CHROMIUM_SANDBOX", True)
         send_screenshots = _env_bool("QASIMODO_AGENT_SEND_SCREENSHOTS", True)
@@ -82,6 +84,7 @@ class AgentConfig:
             agent_id=agent_id,
             nats_url=nats_url,
             heartbeat_interval=heartbeat_interval,
+            chromium_executable=chromium_executable,
             browser_headless=browser_headless,
             chromium_sandbox=chromium_sandbox,
             max_steps=max_steps,
