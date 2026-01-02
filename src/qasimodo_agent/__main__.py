@@ -28,13 +28,14 @@ from rich.table import Table
 
 from qasimodo_agent.browser import ensure_chromium_installed
 from qasimodo_agent.config import AgentConfig, LLMConfig
+from qasimodo_agent.nkey_manager import get_user_public_key
 from qasimodo_agent.proto import AgentHeartbeat, AgentResult, AgentResultKind
 from qasimodo_agent.runtime import AgentRuntime
 from qasimodo_agent.state import (
-    clear_core_token,
-    get_core_token,
-    is_core_token_valid,
-    save_core_token,
+    clear_nats_jwt,
+    get_nats_jwt,
+    is_nats_jwt_valid,
+    save_nats_jwt,
 )
 
 LOGGER = logging.getLogger("qasimodo.agent")
@@ -82,13 +83,15 @@ def _core_base_url() -> str:
 
 
 def _build_auth_url(agent_id: str) -> str:
-    return f"{_core_base_url()}/agent_auth/{agent_id}"
+    user_nkey = get_user_public_key()
+    return f"{_core_base_url()}/agent_auth/{agent_id}?nkey={user_nkey}"
 
 
-def _get_valid_cached_token(agent_id: str) -> str | None:
-    if not is_core_token_valid(agent_id):
+def _get_valid_cached_jwt() -> str | None:
+    """Get cached NATS JWT if valid."""
+    if not is_nats_jwt_valid():
         return None
-    return get_core_token(agent_id)
+    return get_nats_jwt()
 
 
 def _record_auth_prompt(state: AgentState) -> None:
@@ -109,7 +112,7 @@ async def _wait_for_core_token(
     cancel_event: asyncio.Event | None = None,
 ) -> str | None:
     await controller.ensure_control_listener(agent_id=agent_id, nats_url=nats_url)
-    cached = _get_valid_cached_token(agent_id)
+    cached = _get_valid_cached_jwt()
     if cached:
         return cached
 
@@ -171,10 +174,10 @@ class AgentController:
                 LOGGER.warning("Invalid auth payload")
                 return
             action = payload.get("action")
-            token = payload.get("token")
+            jwt_token = payload.get("jwt")
             expires_at = payload.get("expires_at") or ""
             if action == "logout":
-                clear_core_token(agent_id)
+                clear_nats_jwt()
                 self.logout_event.set()
                 self.token_future = loop.create_future()
                 await self.event_queue.put(
@@ -184,11 +187,11 @@ class AgentController:
                     )
                 )
                 return
-            if token:
-                save_core_token(agent_id, token, expires_at)
+            if jwt_token:
+                save_nats_jwt(jwt_token, expires_at)
                 if self.token_future and not self.token_future.done():
-                    self.token_future.set_result(token)
-                await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Received auth token"}))
+                    self.token_future.set_result(jwt_token)
+                await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Received NATS JWT"}))
 
         async def _runner() -> None:
             assert self.control_nc is not None
@@ -517,7 +520,7 @@ async def run_tui(
             await drain_events(controller, state)
             live.update(render_tui(state))
             # Re-auth if needed
-            token = _get_valid_cached_token(state.agent_id)
+            token = _get_valid_cached_jwt()
             if not token:
                 state.authenticated = False
                 _record_auth_prompt(state)
@@ -542,7 +545,7 @@ async def run_tui(
             if controller.logout_event.is_set():
                 await controller.stop()
                 controller.logout_event.clear()
-                clear_core_token(state.agent_id)
+                clear_nats_jwt()
                 state.authenticated = False
                 state.status = "offline"
                 state.last_heartbeat = None
@@ -596,7 +599,7 @@ async def run_headless(
 
     while not shutdown_event.is_set():
         await drain_events(controller, state)
-        token = _get_valid_cached_token(state.agent_id)
+        token = _get_valid_cached_jwt()
         if not token:
             state.authenticated = False
             _record_auth_prompt(state)
@@ -617,7 +620,7 @@ async def run_headless(
         if controller.logout_event.is_set():
             await controller.stop()
             controller.logout_event.clear()
-            clear_core_token(state.agent_id)
+            clear_nats_jwt()
             state.authenticated = False
             state.status = "disconnected"
             state.last_heartbeat = None
@@ -658,6 +661,10 @@ def parse_args() -> argparse.Namespace:
         "--chromium-sandbox",
         choices=["true", "false"],
         help="Enable Chromium sandbox (default true; env QASIMODO_AGENT_CHROMIUM_SANDBOX)",
+    )
+    parser.add_argument(
+        "--chromium-executable",
+        help="Path to Chromium executable (overrides env QASIMODO_AGENT_CHROMIUM_EXECUTABLE)",
     )
     parser.add_argument(
         "--send-screenshots",
@@ -703,7 +710,7 @@ async def _async_main(config: AgentConfig, mode: str, llm_config: LLMConfig, for
             signal.signal(sig, lambda *_: _handle_shutdown())
 
     if force_logout:
-        clear_core_token(agent_id)
+        clear_nats_jwt()
     ensure_chromium_installed()
 
     if mode == "tui":
