@@ -19,17 +19,31 @@ DEFAULT_AGENT_KEY = "__default__"
 class AgentState:
     agents: dict[str, str]
     version: str | None = None
-    core_tokens: dict[str, dict[str, str]] | None = None
+    core_tokens: dict[str, dict[str, str]] | None = None  # Legacy REST tokens (deprecated)
+    nats_jwt: str | None = None  # NATS JWT for authentication
+    nats_jwt_expires_at: str | None = None  # JWT expiry timestamp
 
 
 def _load_state() -> AgentState:
     if not STATE_FILE.exists():
-        return AgentState(agents={}, version=None, core_tokens={})
+        return AgentState(
+            agents={},
+            version=None,
+            core_tokens={},
+            nats_jwt=None,
+            nats_jwt_expires_at=None,
+        )
     try:
         with STATE_FILE.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
     except Exception:  # noqa: BLE001
-        return AgentState(agents={}, version=None, core_tokens={})
+        return AgentState(
+            agents={},
+            version=None,
+            core_tokens={},
+            nats_jwt=None,
+            nats_jwt_expires_at=None,
+        )
     if isinstance(data, dict):
         if "agents" in data or "version" in data:
             raw_agents = data.get("agents", {})
@@ -38,9 +52,23 @@ def _load_state() -> AgentState:
             if version is not None:
                 version = str(version)
             core_tokens = data.get("core_tokens") or {}
-            return AgentState(agents=agents, version=version, core_tokens=core_tokens)
-        return AgentState(agents=_normalize_agents(data), version=None, core_tokens={})
-    return AgentState(agents={}, version=None, core_tokens={})
+            nats_jwt = data.get("nats_jwt")
+            nats_jwt_expires_at = data.get("nats_jwt_expires_at")
+            return AgentState(
+                agents=agents,
+                version=version,
+                core_tokens=core_tokens,
+                nats_jwt=nats_jwt,
+                nats_jwt_expires_at=nats_jwt_expires_at,
+            )
+        return AgentState(
+            agents=_normalize_agents(data),
+            version=None,
+            core_tokens={},
+            nats_jwt=None,
+            nats_jwt_expires_at=None,
+        )
+    return AgentState(agents={}, version=None, core_tokens={}, nats_jwt=None, nats_jwt_expires_at=None)
 
 
 def _normalize_agents(value: object) -> dict[str, str]:
@@ -54,7 +82,13 @@ def _normalize_agents(value: object) -> dict[str, str]:
 
 def _save_state(state: AgentState) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"agents": state.agents, "version": state.version, "core_tokens": state.core_tokens or {}}
+    payload = {
+        "agents": state.agents,
+        "version": state.version,
+        "core_tokens": state.core_tokens or {},
+        "nats_jwt": state.nats_jwt,
+        "nats_jwt_expires_at": state.nats_jwt_expires_at,
+    }
     fd = os.open(STATE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
@@ -176,13 +210,67 @@ def is_core_token_valid(agent_id: str, now: datetime | None = None) -> bool:
     return False
 
 
+def save_nats_jwt(jwt: str, expires_at: str) -> None:
+    """Save NATS JWT for authentication."""
+    state = _load_state()
+    state.nats_jwt = jwt
+    state.nats_jwt_expires_at = expires_at
+    _save_state(state)
+
+
+def get_nats_jwt() -> str | None:
+    """
+    Get the NATS JWT if it exists and is valid.
+
+    Returns None if JWT doesn't exist or is expired.
+    """
+    state = _load_state()
+    if not state.nats_jwt or not state.nats_jwt_expires_at:
+        return None
+
+    # Check expiry
+    try:
+        exp = datetime.fromisoformat(state.nats_jwt_expires_at)
+    except (TypeError, ValueError):
+        clear_nats_jwt()
+        return None
+
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    if exp <= now:
+        # Expired
+        clear_nats_jwt()
+        return None
+
+    return state.nats_jwt
+
+
+def clear_nats_jwt() -> None:
+    """Clear the stored NATS JWT."""
+    state = _load_state()
+    state.nats_jwt = None
+    state.nats_jwt_expires_at = None
+    _save_state(state)
+
+
+def is_nats_jwt_valid() -> bool:
+    """Check if a valid NATS JWT exists."""
+    return get_nats_jwt() is not None
+
+
 __all__ = [
     "clear_core_token",
+    "clear_nats_jwt",
     "get_agent_version",
     "get_core_token",
     "get_core_token_record",
+    "get_nats_jwt",
     "get_or_create_agent_id",
     "is_core_token_valid",
+    "is_nats_jwt_valid",
     "remember_project_agent",
     "save_core_token",
+    "save_nats_jwt",
 ]
