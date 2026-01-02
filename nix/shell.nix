@@ -1,4 +1,4 @@
-{ inputs, ... }:
+{ inputs, lib, ... }:
 {
   imports = [ inputs.make-shell.flakeModules.default ];
 
@@ -8,6 +8,7 @@
       make-shells.default = {
         shellHook = ''
           export FLAKE_ROOT=$(git rev-parse --show-toplevel)
+          export QASIMODO_AGENT_CHROMIUM_EXECUTABLE=${lib.getExe pkgs.chromium}
         '';
         packages = with pkgs; [
           natscli
