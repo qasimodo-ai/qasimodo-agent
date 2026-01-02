@@ -35,6 +35,9 @@
             aiohttp = prev.aiohttp.overrideAttrs (old: {
               nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
             });
+            nkeys = prev.nkeys.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.setuptools ];
+            });
           })
         ]
       );
