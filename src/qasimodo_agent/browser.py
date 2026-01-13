@@ -25,8 +25,23 @@ def find_bundled_chromium() -> str | None:
     return None
 
 
+def find_system_chromium() -> str | None:
+    """Locate Chromium from environment variable QASIMODO_AGENT_CHROMIUM_EXECUTABLE."""
+    import os
+
+    executable = os.environ.get("QASIMODO_AGENT_CHROMIUM_EXECUTABLE")
+    if not executable:
+        return None
+
+    path = Path(executable)
+    if path.exists() and path.is_file():
+        return str(path)
+
+    return None
+
+
 def find_cached_chromium() -> str | None:
-    """Locate Chromium installed by Playwright in the standard cache directories."""
+    """Locate Chromium installed by Playwright in standard cache directories."""
 
     home = Path.home()
     candidates: list[Path] = []
@@ -79,4 +94,9 @@ def ensure_chromium_installed() -> None:
         raise RuntimeError(f"Failed to install Chromium: {exc}") from exc
 
 
-__all__ = ["find_bundled_chromium", "find_cached_chromium", "ensure_chromium_installed"]
+__all__ = [
+    "find_system_chromium",
+    "find_bundled_chromium",
+    "find_cached_chromium",
+    "ensure_chromium_installed",
+]

@@ -28,9 +28,15 @@ from rich.table import Table
 
 from qasimodo_agent.browser import ensure_chromium_installed
 from qasimodo_agent.config import AgentConfig, LLMConfig
+from qasimodo_agent.nkey_manager import get_user_public_key
 from qasimodo_agent.proto import AgentHeartbeat, AgentResult, AgentResultKind
 from qasimodo_agent.runtime import AgentRuntime
-from qasimodo_agent.state import clear_core_token, get_core_token, is_core_token_valid, save_core_token
+from qasimodo_agent.state import (
+    clear_nats_jwt,
+    get_nats_jwt,
+    is_nats_jwt_valid,
+    save_nats_jwt,
+)
 
 LOGGER = logging.getLogger("qasimodo.agent")
 console = Console()
@@ -77,13 +83,15 @@ def _core_base_url() -> str:
 
 
 def _build_auth_url(agent_id: str) -> str:
-    return f"{_core_base_url()}/agent_auth/{agent_id}"
+    user_nkey = get_user_public_key()
+    return f"{_core_base_url()}/agent_auth/{agent_id}?nkey={user_nkey}"
 
 
-def _get_valid_cached_token(agent_id: str) -> str | None:
-    if not is_core_token_valid(agent_id):
+def _get_valid_cached_jwt() -> str | None:
+    """Get cached NATS JWT if valid."""
+    if not is_nats_jwt_valid():
         return None
-    return get_core_token(agent_id)
+    return get_nats_jwt()
 
 
 def _record_auth_prompt(state: AgentState) -> None:
@@ -104,7 +112,7 @@ async def _wait_for_core_token(
     cancel_event: asyncio.Event | None = None,
 ) -> str | None:
     await controller.ensure_control_listener(agent_id=agent_id, nats_url=nats_url)
-    cached = _get_valid_cached_token(agent_id)
+    cached = _get_valid_cached_jwt()
     if cached:
         return cached
 
@@ -146,11 +154,15 @@ class AgentController:
         self.control_task: asyncio.Task | None = None
         self.logout_event: asyncio.Event = asyncio.Event()
         self.token_future: asyncio.Future[str] | None = None
+        self._log_handler: logging.Handler | None = None
+        self._control_stop: asyncio.Event = asyncio.Event()
+        self._monitor_stop: asyncio.Event = asyncio.Event()
 
     async def ensure_control_listener(self, *, agent_id: str, nats_url: str) -> None:
         if self.control_task:
             return
-        self.control_nc = await nats.connect(nats_url)
+        self._control_stop.clear()
+        self.control_nc = await asyncio.wait_for(nats.connect(nats_url), timeout=5.0)
         subject = f"agents.{agent_id}.auth"
         loop = asyncio.get_running_loop()
         self.token_future = loop.create_future()
@@ -162,27 +174,33 @@ class AgentController:
                 LOGGER.warning("Invalid auth payload")
                 return
             action = payload.get("action")
-            token = payload.get("token")
+            jwt_token = payload.get("jwt")
             expires_at = payload.get("expires_at") or ""
             if action == "logout":
-                clear_core_token(agent_id)
+                clear_nats_jwt()
                 self.logout_event.set()
                 self.token_future = loop.create_future()
                 await self.event_queue.put(
-                    AgentEvent(kind="log", payload={"message": "Received logout request; stopping agent"})
+                    AgentEvent(
+                        kind="log",
+                        payload={"message": "Received logout request; stopping agent"},
+                    )
                 )
                 return
-            if token:
-                save_core_token(agent_id, token, expires_at)
+            if jwt_token:
+                save_nats_jwt(jwt_token, expires_at)
                 if self.token_future and not self.token_future.done():
-                    self.token_future.set_result(token)
-                await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Received auth token"}))
+                    self.token_future.set_result(jwt_token)
+                await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Received NATS JWT"}))
 
         async def _runner() -> None:
             assert self.control_nc is not None
             await self.control_nc.subscribe(subject, cb=_on_control)
-            while True:
-                await asyncio.sleep(1)
+            while not self._control_stop.is_set():
+                try:
+                    await asyncio.wait_for(self._control_stop.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
 
         self.control_task = asyncio.create_task(_runner())
 
@@ -191,6 +209,7 @@ class AgentController:
         ensure_chromium_installed()
         config = agent_config
         await self._start_monitor(nats_url=config.nats_url, agent_id=config.agent_id)
+        self._ensure_log_forwarder()
         await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent started"}))
         runtime = AgentRuntime(config=config, llm_config=llm_config)
         self.stop_event = asyncio.Event()
@@ -199,7 +218,8 @@ class AgentController:
     async def _start_monitor(self, *, nats_url: str, agent_id: str) -> None:
         if self.monitor_task:
             self.monitor_task.cancel()
-        self.monitor_nc = await nats.connect(nats_url)
+        self._monitor_stop.clear()
+        self.monitor_nc = await asyncio.wait_for(nats.connect(nats_url), timeout=5.0)
         heartbeat_subject = f"agents.{agent_id}.heartbeat"
         result_subject = f"agents.{agent_id}.results"
 
@@ -233,6 +253,9 @@ class AgentController:
                             "index": result.step.step_index,
                             "status": result.step.status,
                             "action": result.step.action_name,
+                            "observation": result.step.observation,
+                            "error": result.step.error,
+                            "url": result.step.url,
                         }
                         if result.kind == AgentResultKind.AGENT_RESULT_KIND_STEP
                         else None,
@@ -246,8 +269,11 @@ class AgentController:
             assert self.monitor_nc is not None
             await self.monitor_nc.subscribe(heartbeat_subject, cb=_on_heartbeat)
             await self.monitor_nc.subscribe(result_subject, cb=_on_result)
-            while True:
-                await asyncio.sleep(1)
+            while not self._monitor_stop.is_set():
+                try:
+                    await asyncio.wait_for(self._monitor_stop.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
 
         self.monitor_task = asyncio.create_task(_monitor())
 
@@ -259,18 +285,18 @@ class AgentController:
             self.runtime_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.runtime_task
+        self._monitor_stop.set()
         if self.monitor_task:
-            self.monitor_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.monitor_task
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(self.monitor_task, timeout=1.0)
         if self.monitor_nc:
             try:
-                await self.monitor_nc.drain()
+                await asyncio.wait_for(self.monitor_nc.drain(), timeout=2.0)
             except Exception:
                 # Swallow drain errors on shutdown; not critical on exit.
                 pass
-            with contextlib.suppress(Exception):
-                await self.monitor_nc.close()
+            with contextlib.suppress(Exception, asyncio.TimeoutError):
+                await asyncio.wait_for(self.monitor_nc.close(), timeout=1.0)
         self.runtime_task = None
         self.stop_event = None
         self.monitor_task = None
@@ -279,23 +305,72 @@ class AgentController:
             await self.event_queue.put(AgentEvent(kind="log", payload={"message": "Agent stopped"}))
             await self.event_queue.put(
                 AgentEvent(
-                    kind="status", payload={"status": "offline", "timestamp": datetime.now(timezone.utc).timestamp()}
+                    kind="status",
+                    payload={
+                        "status": "offline",
+                        "timestamp": datetime.now(timezone.utc).timestamp(),
+                    },
                 )
             )
 
     async def shutdown(self) -> None:
         await self.stop()
+        self._control_stop.set()
         if self.control_task:
-            self.control_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.control_task
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(self.control_task, timeout=1.0)
         if self.control_nc:
             with contextlib.suppress(Exception):
-                await self.control_nc.drain()
-            with contextlib.suppress(Exception):
-                await self.control_nc.close()
+                await asyncio.wait_for(self.control_nc.drain(), timeout=2.0)
+            with contextlib.suppress(Exception, asyncio.TimeoutError):
+                await asyncio.wait_for(self.control_nc.close(), timeout=1.0)
         self.control_task = None
         self.control_nc = None
+        self._detach_log_forwarder()
+
+    def _ensure_log_forwarder(self) -> None:
+        if self._log_handler:
+            return
+        loop = asyncio.get_running_loop()
+
+        class EventQueueLogHandler(logging.Handler):
+            def __init__(
+                self,
+                queue: asyncio.Queue[AgentEvent],
+                running_loop: asyncio.AbstractEventLoop,
+            ) -> None:
+                super().__init__(level=logging.INFO)
+                self.queue = queue
+                self.loop = running_loop
+
+            def emit(self, record: logging.LogRecord) -> None:
+                try:
+                    message = self.format(record)
+                    event = AgentEvent(kind="log", payload={"message": message})
+                    self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
+                except Exception:  # noqa: BLE001
+                    self.handleError(record)
+
+        handler = EventQueueLogHandler(self.event_queue, loop)
+        formatter = logging.Formatter("%(levelname)s [%(name)s] %(message)s")
+        handler.setFormatter(formatter)
+        self._log_handler = handler
+
+        targets = ["qasimodo.agent.runtime", "Agent", "BrowserSession", "service"]
+        for name in targets:
+            logger = logging.getLogger(name)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+
+    def _detach_log_forwarder(self) -> None:
+        if not self._log_handler:
+            return
+        targets = ["qasimodo.agent.runtime", "Agent", "BrowserSession", "service"]
+        for name in targets:
+            logger = logging.getLogger(name)
+            with contextlib.suppress(ValueError):
+                logger.removeHandler(self._log_handler)
+        self._log_handler = None
 
 
 def render_tui(state: AgentState) -> Panel:
@@ -360,9 +435,28 @@ async def drain_events(controller: AgentController, state: AgentState) -> None:
             state.logs.append(f"{ts} agent status: {status}")
         elif event.kind == "result":
             run_id = event.payload.get("run_id") or "unknown"
-            state.logs.append(
-                f"{datetime.now(timezone.utc).isoformat()} result {run_id} {event.payload.get('status', '')} {event.payload.get('message', '')}"
-            )
+            step = event.payload.get("step")
+            if step:
+                obs = (step.get("observation") or "").strip()
+                err = (step.get("error") or "").strip()
+                url = (step.get("url") or "").strip()
+                detail_parts = []
+                if obs:
+                    detail_parts.append(f"obs={obs}")
+                if err:
+                    detail_parts.append(f"err={err}")
+                if url:
+                    detail_parts.append(f"url={url}")
+                detail = " | ".join(detail_parts)
+                state.logs.append(
+                    f"{datetime.now(timezone.utc).isoformat()} run {run_id} step {step.get('index')} "
+                    f"{step.get('status', '').lower()} {step.get('action', '')} {detail}".strip()
+                )
+            else:
+                state.logs.append(
+                    f"{datetime.now(timezone.utc).isoformat()} result {run_id} {event.payload.get('status', '')} "
+                    f"{event.payload.get('message', '')}"
+                )
 
 
 async def run_tui(
@@ -373,7 +467,26 @@ async def run_tui(
     shutdown_event: asyncio.Event,
 ) -> None:
     console.print(f"Starting agent {state.agent_id} on {state.nats_url}")
-    await controller.ensure_control_listener(agent_id=state.agent_id, nats_url=state.nats_url)
+
+    async def connect_with_cancel() -> bool:
+        connect_task = asyncio.create_task(
+            controller.ensure_control_listener(agent_id=state.agent_id, nats_url=state.nats_url)
+        )
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+        done, pending = await asyncio.wait({connect_task, shutdown_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        if connect_task in done:
+            try:
+                await connect_task
+                return True
+            except asyncio.TimeoutError:
+                console.print("Error: Could not connect to NATS server (connection timeout)")
+                return False
+        return False
+
+    if not await connect_with_cancel():
+        return
     quit_event = asyncio.Event()
     cancel_event = asyncio.Event()
 
@@ -407,7 +520,7 @@ async def run_tui(
             await drain_events(controller, state)
             live.update(render_tui(state))
             # Re-auth if needed
-            token = _get_valid_cached_token(state.agent_id)
+            token = _get_valid_cached_jwt()
             if not token:
                 state.authenticated = False
                 _record_auth_prompt(state)
@@ -416,7 +529,11 @@ async def run_tui(
                 live.update(render_tui(state))
                 await controller.stop()
                 token_result = await _wait_for_core_token(
-                    controller, state.agent_id, state.nats_url, state, cancel_event=cancel_event
+                    controller,
+                    state.agent_id,
+                    state.nats_url,
+                    state,
+                    cancel_event=cancel_event,
                 )
                 if token_result is None:
                     break
@@ -428,7 +545,7 @@ async def run_tui(
             if controller.logout_event.is_set():
                 await controller.stop()
                 controller.logout_event.clear()
-                clear_core_token(state.agent_id)
+                clear_nats_jwt()
                 state.authenticated = False
                 state.status = "offline"
                 state.last_heartbeat = None
@@ -459,18 +576,43 @@ async def run_headless(
     shutdown_event: asyncio.Event,
 ) -> None:
     console.print(f"Starting agent {state.agent_id} on {state.nats_url}")
-    await controller.ensure_control_listener(agent_id=state.agent_id, nats_url=state.nats_url)
+
+    async def connect_with_cancel() -> bool:
+        connect_task = asyncio.create_task(
+            controller.ensure_control_listener(agent_id=state.agent_id, nats_url=state.nats_url)
+        )
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+        done, pending = await asyncio.wait({connect_task, shutdown_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        if connect_task in done:
+            try:
+                await connect_task
+                return True
+            except asyncio.TimeoutError:
+                console.print("Error: Could not connect to NATS server (connection timeout)")
+                return False
+        return False
+
+    if not await connect_with_cancel():
+        return
 
     while not shutdown_event.is_set():
         await drain_events(controller, state)
-        token = _get_valid_cached_token(state.agent_id)
+        token = _get_valid_cached_jwt()
         if not token:
             state.authenticated = False
             _record_auth_prompt(state)
             state.status = "disconnected"
             state.last_heartbeat = None
             await controller.stop()
-            await _wait_for_core_token(controller, state.agent_id, state.nats_url, state, cancel_event=shutdown_event)
+            await _wait_for_core_token(
+                controller,
+                state.agent_id,
+                state.nats_url,
+                state,
+                cancel_event=shutdown_event,
+            )
             continue
         state.authenticated = True
         if controller.runtime_task is None or controller.runtime_task.done():
@@ -478,7 +620,7 @@ async def run_headless(
         if controller.logout_event.is_set():
             await controller.stop()
             controller.logout_event.clear()
-            clear_core_token(state.agent_id)
+            clear_nats_jwt()
             state.authenticated = False
             state.status = "disconnected"
             state.last_heartbeat = None
@@ -505,7 +647,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--heartbeat-interval", type=int, help="Heartbeat interval in seconds")
     parser.add_argument("--health", action="store_true", help="Run health check and exit")
-    parser.add_argument("--log-level", default=os.environ.get("QASIMODO_AGENT_LOG_LEVEL", "INFO"))
+    parser.add_argument("--log-level", default=os.environ.get("QASIMODO_AGENT_LOG_LEVEL", "DEBUG"))
     parser.add_argument("--mode", choices=["tui", "headless"], default="tui")
     parser.add_argument("--llm-api-key", help="LLM API key")
     parser.add_argument("--llm-model", help="LLM model (default google/gemini-2.0-flash-exp)")
@@ -519,6 +661,15 @@ def parse_args() -> argparse.Namespace:
         "--chromium-sandbox",
         choices=["true", "false"],
         help="Enable Chromium sandbox (default true; env QASIMODO_AGENT_CHROMIUM_SANDBOX)",
+    )
+    parser.add_argument(
+        "--chromium-executable",
+        help="Path to Chromium executable (overrides env QASIMODO_AGENT_CHROMIUM_EXECUTABLE)",
+    )
+    parser.add_argument(
+        "--send-screenshots",
+        choices=["true", "false"],
+        help="Send screenshots to core (default true; env QASIMODO_AGENT_SEND_SCREENSHOTS)",
     )
     parser.add_argument(
         "--max-steps",
@@ -559,7 +710,7 @@ async def _async_main(config: AgentConfig, mode: str, llm_config: LLMConfig, for
             signal.signal(sig, lambda *_: _handle_shutdown())
 
     if force_logout:
-        clear_core_token(agent_id)
+        clear_nats_jwt()
     ensure_chromium_installed()
 
     if mode == "tui":
