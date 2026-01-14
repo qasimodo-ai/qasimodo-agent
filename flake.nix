@@ -52,7 +52,7 @@
       { lib, ... }:
       {
         imports = lib.flip lib.pipe [
-          (lib.map builtins.toString)
+          (lib.map toString)
           (lib.filter (lib.hasSuffix ".nix"))
           (lib.filter (f: !lib.hasInfix "/_" f))
         ] (lib.filesystem.listFilesRecursive ./nix);
